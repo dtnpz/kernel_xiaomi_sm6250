@@ -28,21 +28,25 @@ import re
 
 p = Path('drivers/net/usb/usbnet.c')
 s = p.read_text()
+lines = s.splitlines(keepends=True)
 
-# There must be one and only one merge conflict in this reviewed file.
-if s.count('<<<<<<<') != 1 or s.count('=======') != 1 or s.count('>>>>>>>') != 1:
+starts = [i for i, line in enumerate(lines) if line.startswith('<<<<<<< ')]
+seps = [i for i, line in enumerate(lines) if line.startswith('=======')]
+ends = [i for i, line in enumerate(lines) if line.startswith('>>>>>>> ')]
+if len(starts) != 1 or len(seps) != 1 or len(ends) != 1:
     raise SystemExit('unexpected number of conflict markers in usbnet.c')
 
-m = re.search(r'<<<<<<<[^\n]*\n(.*?)\n\|\|\|\|\|\|\|[^\n]*\n(.*?)\n=======\n(.*?)\n>>>>>>>[^\n]*', s, re.S)
-if not m:
-    # Some git configurations omit the diff3 base block; accept only the
-    # equivalent two-way conflict shape.
-    m = re.search(r'<<<<<<<[^\n]*\n(.*?)\n=======\n(.*?)\n>>>>>>>[^\n]*', s, re.S)
-    if not m:
-        raise SystemExit('reviewed usbnet conflict block not found')
-    ours = m.group(1)
-else:
-    ours = m.group(1)
+start, sep, end = starts[0], seps[0], ends[0]
+if not (start < sep < end):
+    raise SystemExit('malformed usbnet conflict marker ordering')
+
+# In zdiff3 there is a ||||||| base marker inside the ours/theirs block.
+# Only the text before that marker is the actual Velvet side.
+base_markers = [i for i in range(start + 1, sep) if lines[i].startswith('||||||| ')]
+if len(base_markers) > 1:
+    raise SystemExit('unexpected multiple zdiff3 base markers')
+ours_end = base_markers[0] if base_markers else sep
+ours = ''.join(lines[start + 1:ours_end])
 
 required = [
     'eth_random_addr(node_id);',
@@ -57,7 +61,8 @@ resolved = ours.replace('\teth_random_addr(node_id);\n', '', 1)
 if 'eth_random_addr(node_id);' in resolved:
     raise SystemExit('failed to remove obsolete node_id initialization')
 
-s = s[:m.start()] + resolved + s[m.end():]
+lines[start:end + 1] = [resolved]
+s = ''.join(lines)
 p.write_text(s)
 
 # Guard the OpenELA semantics that must already have auto-merged.
