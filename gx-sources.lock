@@ -11,6 +11,10 @@ OPENELA_REPO=https://github.com/openela/kernel-lts.git
 OPENELA_TARGET_TAG=v4.14.356-openela
 OPENELA_TARGET_COMMIT=a76b6a6556353484f6f29572989cd37b6cff90cc
 
+# Public mirror of the Yuki clang family used by the Velvet base build script.
+YUKI_CLANG_REPO=https://github.com/Klozz/Yuki-clang.git
+YUKI_CLANG_COMMIT=f3ea3b123a8d33adf8186c320367978e10ea0525
+
 # backslashxx KernelSU v3.3.0-2
 XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
 XXKSU_TAG=v3.3.0-2
