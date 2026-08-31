@@ -1,0 +1,32 @@
+# GX Miatoll Nexus-4.5-style kernel source pins
+# Generated/verified 2026-09-01.
+# Do not silently replace these with floating branches in release builds.
+
+VELVET_REPO=https://github.com/ProjectVelvet/kernel_xiaomi_sm6250.git
+VELVET_BRANCH=non-ksu
+VELVET_BASE_COMMIT=b2bd9c524da082540e0f2f0216bfa15eee1c8614
+VELVET_OPENELA_349_PARENT=e4913de9177c1394c3b2b73c86f5e7d9d9614388
+
+OPENELA_REPO=https://github.com/openela/kernel-lts.git
+OPENELA_TARGET_TAG=v4.14.356-openela
+OPENELA_TARGET_COMMIT=a76b6a6556353484f6f29572989cd37b6cff90cc
+
+# backslashxx KernelSU v3.3.0-2
+XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
+XXKSU_TAG=v3.3.0-2
+XXKSU_COMMIT=1d1cc5cf1981dbf8ce3258ba16e1a6b16d9651f2
+
+# KernelSU-Next manager/release target.
+KSUN_REPO=https://github.com/KernelSU-Next/KernelSU-Next.git
+KSUN_RELEASE_TAG=v3.3.0
+KSUN_RELEASE_COMMIT=3b18216f71df189ab3d1b1ce0bdb21be1268e771
+
+# 4.14 integration uses the legacy/manual-hook line rather than modern
+# 5.10+ kprobe-oriented integration. This is intentionally pinned separately
+# from the manager release tag.
+KSUN_LEGACY_COMMIT=a54e4fa46c6cc25bcaa055cf14d790194beffed8
+
+# Official SUSFS 4.14 reference line.
+SUSFS_REPO=https://github.com/Star-Seven/susfs4ksu.git
+SUSFS_BRANCH=kernel-4.14
+SUSFS_COMMIT=d18028f2a8f3ba16a907bff0edc16376cf38e2bf
