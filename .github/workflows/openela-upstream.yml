@@ -61,6 +61,25 @@ jobs:
           set -euo pipefail
           rm -rf openela-conflict-report
 
+          capture_conflict_report() {
+            local tag="$1"
+            mkdir -p openela-conflict-report/base openela-conflict-report/ours openela-conflict-report/theirs
+            printf '%s\n' "$tag" > openela-conflict-report/FAILED_TAG.txt
+            git status --porcelain=v2 > openela-conflict-report/STATUS.txt || true
+            git diff --name-only --diff-filter=U > openela-conflict-report/UNMERGED.txt || true
+            git diff --cc > openela-conflict-report/CONFLICTS.diff || true
+
+            while IFS= read -r path; do
+              [ -n "$path" ] || continue
+              mkdir -p "openela-conflict-report/base/$(dirname "$path")"
+              mkdir -p "openela-conflict-report/ours/$(dirname "$path")"
+              mkdir -p "openela-conflict-report/theirs/$(dirname "$path")"
+              git show ":1:$path" > "openela-conflict-report/base/$path" 2>/dev/null || true
+              git show ":2:$path" > "openela-conflict-report/ours/$path" 2>/dev/null || true
+              git show ":3:$path" > "openela-conflict-report/theirs/$path" 2>/dev/null || true
+            done < openela-conflict-report/UNMERGED.txt
+          }
+
           for v in 350 351 352 353 354 355 356; do
             tag="v4.14.${v}-openela"
             commit="$(git rev-list -n1 "$tag")"
@@ -80,25 +99,24 @@ jobs:
             set -e
 
             if [ "$rc" -ne 0 ]; then
-              mkdir -p openela-conflict-report/base openela-conflict-report/ours openela-conflict-report/theirs
-              printf '%s\n' "$tag" > openela-conflict-report/FAILED_TAG.txt
-              git status --porcelain=v2 > openela-conflict-report/STATUS.txt || true
-              git diff --name-only --diff-filter=U > openela-conflict-report/UNMERGED.txt || true
-              git diff --cc > openela-conflict-report/CONFLICTS.diff || true
+              resolved=0
 
-              while IFS= read -r path; do
-                [ -n "$path" ] || continue
-                mkdir -p "openela-conflict-report/base/$(dirname "$path")"
-                mkdir -p "openela-conflict-report/ours/$(dirname "$path")"
-                mkdir -p "openela-conflict-report/theirs/$(dirname "$path")"
-                git show ":1:$path" > "openela-conflict-report/base/$path" 2>/dev/null || true
-                git show ":2:$path" > "openela-conflict-report/ours/$path" 2>/dev/null || true
-                git show ":3:$path" > "openela-conflict-report/theirs/$path" 2>/dev/null || true
-              done < openela-conflict-report/UNMERGED.txt
+              # This resolver is allowed only for the exact two conflicts
+              # reviewed from the first 4.14.350 run.  It preserves Velvet's
+              # Android BPF/refactor behavior and adds OpenELA's protocol
+              # pointer race fix. It refuses any unexpected conflict set.
+              if [ "$tag" = "v4.14.350-openela" ]; then
+                if bash scripts/gx/resolve-openela-4.14.350.sh; then
+                  resolved=1
+                fi
+              fi
 
-              echo "Conflict at $tag. No automatic ours/theirs resolution was used."
-              cat openela-conflict-report/UNMERGED.txt || true
-              exit 1
+              if [ "$resolved" -eq 0 ]; then
+                capture_conflict_report "$tag"
+                echo "Unreviewed conflict at $tag; stopping safely."
+                cat openela-conflict-report/UNMERGED.txt || true
+                exit 1
+              fi
             fi
 
             echo "Merged $tag successfully; preserving this checkpoint."
