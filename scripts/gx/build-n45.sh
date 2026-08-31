@@ -43,8 +43,24 @@ if [[ "$actual_toolchain" != "$YUKI_CLANG_COMMIT" ]]; then
   exit 4
 fi
 
-export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-export KBUILD_COMPILER_STRING="$(clang --version | head -n1 | sed -E 's/[[:space:]]+/ /g; s/[[:space:]]+$//')"
+CLANG="$TOOLCHAIN_DIR/bin/clang"
+LD_LLD="$TOOLCHAIN_DIR/bin/ld.lld"
+LLVM_AR="$TOOLCHAIN_DIR/bin/llvm-ar"
+LLVM_NM="$TOOLCHAIN_DIR/bin/llvm-nm"
+LLVM_OBJCOPY="$TOOLCHAIN_DIR/bin/llvm-objcopy"
+LLVM_OBJDUMP="$TOOLCHAIN_DIR/bin/llvm-objdump"
+LLVM_STRIP="$TOOLCHAIN_DIR/bin/llvm-strip"
+
+for tool in "$CLANG" "$LD_LLD" "$LLVM_AR" "$LLVM_NM" "$LLVM_OBJCOPY" "$LLVM_OBJDUMP" "$LLVM_STRIP"; do
+  if [[ ! -x "$tool" ]]; then
+    echo "[N45] missing pinned target tool: $tool" >&2
+    exit 4
+  fi
+done
+
+# Do NOT prepend the old target toolchain to PATH. Ubuntu 24.04 host tools need
+# the system linker; an old bundled GNU ld cannot parse modern glibc RELR.
+export KBUILD_COMPILER_STRING="$($CLANG --version | head -n1 | sed -E 's/[[:space:]]+/ /g; s/[[:space:]]+$//')"
 
 mkdir -p "$OUT_DIR" "$ARTIFACT_DIR"
 rm -rf "$AK3_WORK"
@@ -59,23 +75,25 @@ printf '[N45] kernel: %s\n' "$(make -s kernelversion)"
 # root/BP layers on NONKSU-NBP and adds only the layers described by .gx-variant.
 bash scripts/gx/prepare-variant.sh
 
-# Clean out-of-tree build. Do not mutate source defconfigs permanently in CI.
+# Clean out-of-tree build. Host tools deliberately use distro GCC/binutils;
+# target kernel objects use the pinned LLVM binaries by absolute path.
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
-make O="$OUT_DIR" "$DEFCONFIG"
+make O="$OUT_DIR" HOSTCC=/usr/bin/gcc HOSTCXX=/usr/bin/g++ "$DEFCONFIG"
 
 make -j"$(nproc --all)" O="$OUT_DIR" \
   ARCH=arm64 \
-  CC=clang \
-  LD=ld.lld \
-  AR=llvm-ar \
-  NM=llvm-nm \
-  OBJCOPY=llvm-objcopy \
-  OBJDUMP=llvm-objdump \
-  STRIP=llvm-strip \
+  HOSTCC=/usr/bin/gcc \
+  HOSTCXX=/usr/bin/g++ \
+  CC="$CLANG" \
+  LD="$LD_LLD" \
+  AR="$LLVM_AR" \
+  NM="$LLVM_NM" \
+  OBJCOPY="$LLVM_OBJCOPY" \
+  OBJDUMP="$LLVM_OBJDUMP" \
+  STRIP="$LLVM_STRIP" \
   CROSS_COMPILE=aarch64-linux-gnu- \
   CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-  LLVM=1 \
   LLVM_IAS=1
 
 IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz"
