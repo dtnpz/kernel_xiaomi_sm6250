@@ -32,8 +32,30 @@ echo "[N45] applying SUSFS ${SUSFS_COMMIT} to $root_kind"
 cp -f "$SUS_DIR"/kernel_patches/fs/* fs/
 cp -f "$SUS_DIR"/kernel_patches/include/linux/* include/linux/
 
-KSU_PATCH="$SUS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 KERNEL_PATCH="$SUS_DIR/kernel_patches/50_add_susfs_in_kernel-4.14.patch"
+KSU_PATCH="$SUS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
+KSU_PATCH_TMP=""
+
+# backslashxx moved far beyond the legacy KernelSU layout targeted by the
+# simonpunk patch above. Use a modern xxKSU SUSFS 2.1.0 adaptation that targets
+# kernel/{feature,hook,selinux,supercall} and refuse it if its identity changes.
+if [[ "$root_kind" == "xxksu" ]]; then
+  XX_SUSFS_PATCH_COMMIT="548e17b0606fe672ccbb66267c2304a75590456d"
+  XX_SUSFS_PATCH_SHA256="cb4078ad33a3d987a19b89618407a445c62b2c88857fe208328627c4468318c7"
+  KSU_PATCH_TMP="$(mktemp)"
+  curl -fsSL --retry 3 --retry-delay 2 \
+    "https://raw.githubusercontent.com/juniarafi213/workflow/${XX_SUSFS_PATCH_COMMIT}/0001-xxKSU-kernel-implement-susfs-v2.1.0-De-inlined.patch" \
+    -o "$KSU_PATCH_TMP"
+  actual_patch_sha="$(sha256sum "$KSU_PATCH_TMP" | awk '{print $1}')"
+  if [[ "$actual_patch_sha" != "$XX_SUSFS_PATCH_SHA256" ]]; then
+    echo "xxKSU SUSFS adapter checksum mismatch: expected $XX_SUSFS_PATCH_SHA256 got $actual_patch_sha" >&2
+    exit 5
+  fi
+  grep -Fq 'Subject: [PATCH] kernel: implement susfs v2.1.0' "$KSU_PATCH_TMP"
+  grep -Fq 'kernel/hook/core_hook.c' "$KSU_PATCH_TMP"
+  KSU_PATCH="$KSU_PATCH_TMP"
+fi
+trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"' EXIT
 
 # First do dry-runs so a partial patch is never mistaken for a valid layer.
 if ! (cd "$KSU_DIR" && patch --dry-run --forward -p1 < "$KSU_PATCH"); then
@@ -68,5 +90,7 @@ PY
 grep -Fxq 'CONFIG_KSU_SUSFS=y' arch/arm64/configs/vendor/miatoll-perf_defconfig
 [[ -s fs/susfs.c ]]
 [[ -s include/linux/susfs.h ]]
+grep -Fq 'config KSU_SUSFS' "$KSU_DIR/kernel/Kconfig" 2>/dev/null || \
+  grep -Fq 'config KSU_SUSFS' "$KSU_DIR/Kconfig"
 
 echo "[N45] SUSFS 4.14 layer applied cleanly"
