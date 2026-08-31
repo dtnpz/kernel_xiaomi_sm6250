@@ -1,0 +1,192 @@
+name: Release N45 4.14.356 MIUI
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag
+        required: true
+        default: n45-4.14.356-r1
+      prerelease:
+        description: Mark as prerelease until device validation is complete
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: miatoll-nexus45-nbp
+            variant: NONKSU-NBP
+            zip: N45-4.14.356-MIUI-NONKSU-NBP.zip
+          - branch: miatoll-nexus45-nbp-xxksu
+            variant: XXKSU-SUSFS-NBP
+            zip: N45-4.14.356-MIUI-XXKSU-SUSFS-NBP.zip
+          - branch: miatoll-nexus45-nbp-ksun
+            variant: KSUN330-SUSFS-NBP
+            zip: N45-4.14.356-MIUI-KSUN330-SUSFS-NBP.zip
+          - branch: miatoll-nexus45-bp
+            variant: NONKSU-BP
+            zip: N45-4.14.356-MIUI-NONKSU-BP.zip
+          - branch: miatoll-nexus45-bp-xxksu
+            variant: XXKSU-SUSFS-BP
+            zip: N45-4.14.356-MIUI-XXKSU-SUSFS-BP.zip
+          - branch: miatoll-nexus45-bp-ksun
+            variant: KSUN330-SUSFS-BP
+            zip: N45-4.14.356-MIUI-KSUN330-SUSFS-BP.zip
+
+    steps:
+      - name: Checkout exact variant branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            bc bison build-essential cpio curl flex git libelf-dev \
+            libssl-dev libxml2-dev lz4 python3 rsync unzip wget zip \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Verify branch metadata
+        env:
+          EXPECTED_VARIANT: ${{ matrix.variant }}
+          EXPECTED_ZIP: ${{ matrix.zip }}
+        run: |
+          set -euo pipefail
+          test -f .gx-variant
+          # shellcheck disable=SC1091
+          source .gx-variant
+          test "$GX_VARIANT" = "$EXPECTED_VARIANT"
+          test "$GX_ZIP" = "$EXPECTED_ZIP"
+          test "$(make -s kernelversion)" = "4.14.356-openela"
+
+      - name: Build release candidate
+        run: bash scripts/gx/build-n45.sh
+
+      - name: Verify expected artifact
+        env:
+          EXPECTED_ZIP: ${{ matrix.zip }}
+        run: |
+          set -euo pipefail
+          test -s "artifacts/$EXPECTED_ZIP"
+          test -s "artifacts/$EXPECTED_ZIP.sha256"
+          test -s "artifacts/$EXPECTED_ZIP.md5"
+          sha256sum -c "artifacts/$EXPECTED_ZIP.sha256"
+          md5sum -c "artifacts/$EXPECTED_ZIP.md5"
+
+      - name: Upload matrix artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.variant }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout release workflow source
+        uses: actions/checkout@v4
+        with:
+          ref: miatoll-nexus45-base
+          fetch-depth: 1
+
+      - name: Download all six successful build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify complete six-ZIP release set
+        run: |
+          set -euo pipefail
+          expected=(
+            N45-4.14.356-MIUI-NONKSU-NBP.zip
+            N45-4.14.356-MIUI-XXKSU-SUSFS-NBP.zip
+            N45-4.14.356-MIUI-KSUN330-SUSFS-NBP.zip
+            N45-4.14.356-MIUI-NONKSU-BP.zip
+            N45-4.14.356-MIUI-XXKSU-SUSFS-BP.zip
+            N45-4.14.356-MIUI-KSUN330-SUSFS-BP.zip
+          )
+
+          for zip in "${expected[@]}"; do
+            test -s "dist/$zip"
+            test -s "dist/$zip.sha256"
+            test -s "dist/$zip.md5"
+            (cd dist && sha256sum -c "$zip.sha256")
+            (cd dist && md5sum -c "$zip.md5")
+          done
+
+          actual_count="$(find dist -maxdepth 1 -type f -name 'N45-4.14.356-MIUI-*.zip' | wc -l)"
+          test "$actual_count" -eq 6
+
+          cat dist/*.sha256 | sort > dist/SHA256SUMS
+          cat dist/*.md5 | sort > dist/MD5SUMS
+
+      - name: Write release notes
+        run: |
+          cat > dist/RELEASE_NOTES.md <<'EOF'
+          # N45 4.14.356 MIUI / HyperOS Miatoll
+
+          First release-candidate set built from the shared OpenELA 4.14.356 Miatoll base.
+
+          Included variants:
+          - NONKSU NBP
+          - backslashxx KernelSU + SUSFS NBP
+          - KernelSU-Next + SUSFS NBP
+          - NONKSU BP
+          - backslashxx KernelSU + SUSFS BP
+          - KernelSU-Next + SUSFS BP
+
+          NBP keeps the tree's required Android BPF support without the selected extra BP layer. BP adds only the reviewed targeted BPF backport layer shared by all three BP variants.
+
+          Root implementations are separate builds; no image contains both KernelSU implementations.
+
+          Device target: Xiaomi Miatoll family, with Joyeuse/Redmi Note 9 Pro as the primary MIUI 14 Android 12 validation target.
+
+          Back up the current boot image before flashing. A successful CI build proves compilation and packaging, not device-level stability. Keep this release marked prerelease until all hardware and reboot tests pass on-device.
+          EOF
+
+      - name: Create release and upload verified files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          extra=()
+          if [[ "$PRERELEASE" == "true" ]]; then
+            extra+=(--prerelease)
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it." >&2
+            exit 2
+          fi
+
+          gh release create "$TAG" \
+            --target miatoll-nexus45-base \
+            --title "N45 4.14.356 MIUI r1" \
+            --notes-file dist/RELEASE_NOTES.md \
+            "${extra[@]}" \
+            dist/N45-4.14.356-MIUI-*.zip \
+            dist/N45-4.14.356-MIUI-*.zip.sha256 \
+            dist/N45-4.14.356-MIUI-*.zip.md5 \
+            dist/SHA256SUMS \
+            dist/MD5SUMS
