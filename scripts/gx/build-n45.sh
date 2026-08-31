@@ -11,9 +11,13 @@ fi
 
 # shellcheck disable=SC1091
 source .gx-variant
+# shellcheck disable=SC1091
+source gx-sources.lock
 
 : "${GX_VARIANT:?GX_VARIANT missing from .gx-variant}"
 : "${GX_ZIP:?GX_ZIP missing from .gx-variant}"
+: "${YUKI_CLANG_REPO:?YUKI_CLANG_REPO missing from gx-sources.lock}"
+: "${YUKI_CLANG_COMMIT:?YUKI_CLANG_COMMIT missing from gx-sources.lock}"
 
 DEFCONFIG="${GX_DEFCONFIG:-vendor/miatoll-perf_defconfig}"
 TOOLCHAIN_DIR="${GX_TOOLCHAIN_DIR:-$HOME/tools/yuki-clang}"
@@ -27,11 +31,16 @@ export KBUILD_BUILD_HOST="${KBUILD_BUILD_HOST:-Github-CI}"
 export KBUILD_BUILD_USER="${KBUILD_BUILD_USER:-gx-n45}"
 
 if [[ ! -x "$TOOLCHAIN_DIR/bin/clang" ]]; then
-  echo "[N45] Cloning the tree's known-working Yuki clang toolchain..."
+  echo "[N45] Cloning pinned public Yuki clang mirror..."
+  rm -rf "$TOOLCHAIN_DIR"
   mkdir -p "$(dirname "$TOOLCHAIN_DIR")"
-  git clone -q --depth=1 --single-branch \
-    https://bitbucket.org/thexperienceproject/yuki-clang.git \
-    "$TOOLCHAIN_DIR"
+  git clone -q --depth=1 --single-branch "$YUKI_CLANG_REPO" "$TOOLCHAIN_DIR"
+fi
+
+actual_toolchain="$(git -C "$TOOLCHAIN_DIR" rev-parse HEAD)"
+if [[ "$actual_toolchain" != "$YUKI_CLANG_COMMIT" ]]; then
+  echo "[N45] Yuki clang pin mismatch: expected $YUKI_CLANG_COMMIT got $actual_toolchain" >&2
+  exit 4
 fi
 
 export PATH="$TOOLCHAIN_DIR/bin:$PATH"
@@ -43,13 +52,14 @@ rm -rf "$AK3_WORK"
 printf '[N45] variant: %s\n' "$GX_VARIANT"
 printf '[N45] defconfig: %s\n' "$DEFCONFIG"
 printf '[N45] compiler: %s\n' "$KBUILD_COMPILER_STRING"
+printf '[N45] toolchain commit: %s\n' "$actual_toolchain"
 printf '[N45] kernel: %s\n' "$(make -s kernelversion)"
 
 # Keep variant preparation explicit and reproducible. This is a no-op for
-# NONKSU-NBP and adds only the layers described by .gx-variant for others.
+# root/BP layers on NONKSU-NBP and adds only the layers described by .gx-variant.
 bash scripts/gx/prepare-variant.sh
 
-# Clean out-of-tree build. Do not mutate source defconfigs during CI.
+# Clean out-of-tree build. Do not mutate source defconfigs permanently in CI.
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 make O="$OUT_DIR" "$DEFCONFIG"
@@ -88,6 +98,8 @@ cp "$CONFIG" "$ARTIFACT_DIR/${GX_VARIANT}.config"
   echo "source_commit=$(git rev-parse HEAD)"
   echo "kernelversion=$(make -s kernelversion)"
   echo "compiler=$KBUILD_COMPILER_STRING"
+  echo "toolchain_repo=$YUKI_CLANG_REPO"
+  echo "toolchain_commit=$actual_toolchain"
   echo "defconfig=$DEFCONFIG"
   echo "root=${GX_ROOT:-none}"
   echo "susfs=${GX_SUSFS:-0}"
