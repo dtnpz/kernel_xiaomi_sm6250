@@ -31,6 +31,21 @@ if [[ "$GX_ROOT" == none && "$GX_SUSFS" == 1 ]]; then
   exit 2
 fi
 
+# Nexus v4.5's published MM target uses swappiness=60. Keep this as a common
+# build-time N45 delta so every release variant inherits the same MM behavior.
+python3 - <<'PY'
+from pathlib import Path
+p = Path('mm/vmscan.c')
+s = p.read_text()
+old = 'int vm_swappiness = 10;'
+new = 'int vm_swappiness = 60;'
+if old in s:
+    s = s.replace(old, new, 1)
+elif new not in s:
+    raise SystemExit('Unexpected vm_swappiness source state; refusing to guess')
+p.write_text(s)
+PY
+
 # The source tree still carries Velvet's old localversion. Give every build an
 # unambiguous N45 banner without keeping six duplicate defconfigs in git.
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
