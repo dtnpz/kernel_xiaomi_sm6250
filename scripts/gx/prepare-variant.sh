@@ -31,6 +31,14 @@ if [[ "$GX_ROOT" == none && "$GX_SUSFS" == 1 ]]; then
   exit 2
 fi
 
+# Layer order is deliberately fixed so every family differs minimally:
+# common N45 base -> optional selected BPF backports -> one root -> SUSFS.
+if [[ ! -f scripts/gx/apply-n45-common.sh ]]; then
+  echo "Missing scripts/gx/apply-n45-common.sh" >&2
+  exit 3
+fi
+bash scripts/gx/apply-n45-common.sh
+
 # The source tree still carries Velvet's old localversion. Give every build an
 # unambiguous N45 banner without keeping six duplicate defconfigs in git.
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
@@ -53,8 +61,6 @@ else:
 p.write_text(s)
 PY
 
-# Layer order is deliberately fixed so every family differs minimally:
-# common N45 base -> optional selected BPF backports -> one root -> SUSFS.
 if [[ "$GX_BP" == 1 ]]; then
   if [[ ! -f scripts/gx/apply-bp510.sh ]]; then
     echo "BP requested but scripts/gx/apply-bp510.sh is not ready." >&2
