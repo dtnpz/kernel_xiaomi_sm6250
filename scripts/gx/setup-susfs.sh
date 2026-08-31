@@ -36,39 +36,40 @@ KERNEL_PATCH="$SUS_DIR/kernel_patches/50_add_susfs_in_kernel-4.14.patch"
 KSU_PATCH="$SUS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 KSU_PATCH_TMP=""
 
-# backslashxx moved far beyond the legacy KernelSU layout targeted by the
-# simonpunk patch above. Use a modern xxKSU SUSFS 2.1.0 adaptation that targets
-# kernel/{feature,hook,selinux,supercall} and refuse it if its identity changes.
+# The stock SUSFS KSU patch targets the legacy upstream KernelSU layout.
+# backslashxx v3.3.0-2 has a newer setuid/syscall/downstream layout. Pin the
+# Aug-22 adapter whose source indexes match this generation (including exact
+# Kconfig and setuid_hook blobs) and still require a full dry-run before use.
 if [[ "$root_kind" == "xxksu" ]]; then
-  XX_SUSFS_PATCH_COMMIT="548e17b0606fe672ccbb66267c2304a75590456d"
-  XX_SUSFS_PATCH_SHA256="c99f58a81bf0b297b7053775bae675fe2671ab16acd1f77fc128f37eca240a4d"
+  XX_SUSFS_PATCH_COMMIT="f93ab9260f5bcf5c780c69763029722f44c98928"
   KSU_PATCH_TMP="$(mktemp)"
   curl -fsSL --retry 3 --retry-delay 2 \
-    "https://raw.githubusercontent.com/juniarafi213/workflow/${XX_SUSFS_PATCH_COMMIT}/0001-xxKSU-kernel-implement-susfs-v2.1.0-De-inlined.patch" \
+    "https://raw.githubusercontent.com/yapixel/popsicle_ksu_workflow/${XX_SUSFS_PATCH_COMMIT}/.github/patches/xxksu/11_enable_susfs_for_ksu.patch" \
     -o "$KSU_PATCH_TMP"
-  actual_patch_sha="$(sha256sum "$KSU_PATCH_TMP" | awk '{print $1}')"
-  if [[ "$actual_patch_sha" != "$XX_SUSFS_PATCH_SHA256" ]]; then
-    echo "xxKSU SUSFS adapter checksum mismatch: expected $XX_SUSFS_PATCH_SHA256 got $actual_patch_sha" >&2
-    exit 5
-  fi
-  grep -Fq 'Subject: [PATCH] kernel: implement susfs v2.1.0' "$KSU_PATCH_TMP"
-  grep -Fq 'kernel/hook/core_hook.c' "$KSU_PATCH_TMP"
+  # The URL is immutable because it is commit-pinned. Validate the expected
+  # patch identity/source generation so a wrong payload cannot be applied.
+  grep -Fq 'Date: Sat, 22 Aug 2026' "$KSU_PATCH_TMP"
+  grep -Fq 'Subject: [PATCH] susfs' "$KSU_PATCH_TMP"
+  grep -Fq 'index 18b97b7f54a4..' "$KSU_PATCH_TMP"
+  grep -Fq 'kernel/hook/setuid_hook.c' "$KSU_PATCH_TMP"
+  grep -Fq 'kernel/downstream/ksu_hostsredirect.h' "$KSU_PATCH_TMP"
+  echo "[N45] xxKSU SUSFS adapter sha256: $(sha256sum "$KSU_PATCH_TMP" | awk '{print $1}')"
   KSU_PATCH="$KSU_PATCH_TMP"
 fi
 trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"' EXIT
 
 # First do dry-runs so a partial patch is never mistaken for a valid layer.
-if ! (cd "$KSU_DIR" && patch --dry-run --forward -p1 < "$KSU_PATCH"); then
+if ! (cd "$KSU_DIR" && patch --batch --dry-run --forward -p1 < "$KSU_PATCH"); then
   echo "[N45] SUSFS KernelSU patch does not apply cleanly to $root_kind; adaptation required." >&2
   exit 5
 fi
-if ! patch --dry-run --forward -p1 < "$KERNEL_PATCH"; then
+if ! patch --batch --dry-run --forward -p1 < "$KERNEL_PATCH"; then
   echo "[N45] SUSFS 4.14 kernel patch does not apply cleanly to this vendor tree; adaptation required." >&2
   exit 6
 fi
 
-(cd "$KSU_DIR" && patch --forward -p1 < "$KSU_PATCH")
-patch --forward -p1 < "$KERNEL_PATCH"
+(cd "$KSU_DIR" && patch --batch --forward -p1 < "$KSU_PATCH")
+patch --batch --forward -p1 < "$KERNEL_PATCH"
 
 python3 <<'PY'
 from pathlib import Path
