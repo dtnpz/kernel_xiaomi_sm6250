@@ -10,7 +10,7 @@ DEFCONFIG="arch/arm64/configs/vendor/miatoll-perf_defconfig"
 KSUN_DIR="$ROOT_DIR/KernelSU-Next"
 
 rm -rf "$KSUN_DIR"
-rm -f drivers/kernelsu
+rm -rf drivers/kernelsu
 
 echo "[N45] integrating KernelSU-Next legacy ${KSUN_LEGACY_COMMIT}"
 git clone -q "$KSUN_REPO" "$KSUN_DIR"
@@ -42,7 +42,6 @@ def one_replace(path, old, new, label):
         raise SystemExit(f'{path}: expected exactly one {label} insertion point, found {s.count(old)}')
     p.write_text(s.replace(old, new, 1))
 
-# Velvet already contains the execve and faccessat manual call-sites.
 for path, needle in (
     ('fs/exec.c', 'ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);'),
     ('fs/open.c', 'ksu_handle_faccessat(&dfd, &filename, &mode, NULL);'),
@@ -52,8 +51,7 @@ for path, needle in (
 
 stat_decl = '''#ifdef CONFIG_KSU\nextern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n#endif\n\n'''
 stat_anchor = '/**\n * vfs_statx - Get basic and extra attributes by filename\n'
-one_replace('fs/stat.c', stat_anchor, stat_decl + stat_anchor,
-            'vfs_statx declaration')
+one_replace('fs/stat.c', stat_anchor, stat_decl + stat_anchor, 'vfs_statx declaration')
 
 stat_call_anchor = '\tunsigned int lookup_flags = LOOKUP_FOLLOW | LOOKUP_AUTOMOUNT;\n\n'
 stat_call = stat_call_anchor + '''#ifdef CONFIG_KSU\n\tksu_handle_stat(&dfd, &filename, &flags);\n#endif\n\n'''
@@ -69,11 +67,7 @@ one_replace('kernel/sys.c', uid_call_anchor, uid_call, 'setresuid hook')
 
 p = Path('arch/arm64/configs/vendor/miatoll-perf_defconfig')
 s = p.read_text()
-settings = {
-    'KSU': 'y',
-    'KSU_MANUAL_HOOK': 'y',
-    'KSU_KPROBES_HOOK': 'n',
-}
+settings = {'KSU': 'y', 'KSU_MANUAL_HOOK': 'y', 'KSU_KPROBES_HOOK': 'n'}
 for key, value in settings.items():
     pat = re.compile(rf'^(?:CONFIG_{re.escape(key)}=.*|# CONFIG_{re.escape(key)} is not set)$', re.M)
     line = f'CONFIG_{key}=y' if value == 'y' else f'# CONFIG_{key} is not set'
