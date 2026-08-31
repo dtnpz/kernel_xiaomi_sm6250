@@ -6,6 +6,7 @@ on:
       - miatoll-nexus45-base
     paths:
       - .github/workflows/openela-upstream.yml
+      - scripts/gx/resolve-openela-4.14.*.sh
   workflow_dispatch:
 
 permissions:
