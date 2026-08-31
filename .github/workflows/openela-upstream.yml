@@ -22,11 +22,12 @@ jobs:
       BRANCH: miatoll-nexus45-base
       OPENELA_349: e4913de9177c1394c3b2b73c86f5e7d9d9614388
     steps:
-      - name: Checkout full Velvet history
+      - name: Checkout Velvet history
         uses: actions/checkout@v4
         with:
           ref: miatoll-nexus45-base
           fetch-depth: 0
+          filter: blob:none
 
       - name: Sync latest branch head
         run: |
@@ -99,14 +100,15 @@ jobs:
             set -e
 
             if [ "$rc" -ne 0 ]; then
+              resolver="scripts/gx/resolve-openela-4.14.${v}.sh"
               resolved=0
 
-              # This resolver is allowed only for the exact two conflicts
-              # reviewed from the first 4.14.350 run.  It preserves Velvet's
-              # Android BPF/refactor behavior and adds OpenELA's protocol
-              # pointer race fix. It refuses any unexpected conflict set.
-              if [ "$tag" = "v4.14.350-openela" ]; then
-                if bash scripts/gx/resolve-openela-4.14.350.sh; then
+              # A resolver is trusted only after its exact conflict set and
+              # both sides have been reviewed. Each resolver must refuse any
+              # unexpected files/context; absence of a resolver is a hard stop.
+              if [ -f "$resolver" ]; then
+                echo "Trying reviewed resolver: $resolver"
+                if bash "$resolver"; then
                   resolved=1
                 fi
               fi
