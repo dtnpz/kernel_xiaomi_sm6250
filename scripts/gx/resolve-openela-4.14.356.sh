@@ -223,16 +223,23 @@ for needle in (
 print('Reviewed OpenELA 4.14.356 conflict semantics applied successfully.')
 PY
 
-git add \
-  arch/arm64/include/asm/cputype.h \
-  drivers/usb/dwc3/core.c \
-  fs/f2fs/file.c \
-  fs/f2fs/xattr.c \
-  include/linux/clk.h \
-  net/qrtr/qrtr.c \
+resolved_files=(
+  arch/arm64/include/asm/cputype.h
+  drivers/usb/dwc3/core.c
+  fs/f2fs/file.c
+  fs/f2fs/xattr.c
+  include/linux/clk.h
+  net/qrtr/qrtr.c
   security/selinux/selinuxfs.c
+)
 
-git diff --check --cached
+git add "${resolved_files[@]}"
+
+# Check only the files this resolver touched. OpenELA 4.14.356 itself contains
+# unrelated historical whitespace (for example AMDGPU); that must not turn a
+# reviewed conflict resolution into a false failure or tempt us to modify
+# unrelated upstream code during the merge.
+git diff --check --cached -- "${resolved_files[@]}"
 
 if git diff --name-only --diff-filter=U | grep -q .; then
   echo "Unmerged files remain after 4.14.356 resolver:" >&2
