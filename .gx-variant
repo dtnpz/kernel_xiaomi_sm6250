@@ -1,0 +1,6 @@
+GX_VARIANT="NONKSU-NBP"
+GX_ZIP="N45-4.14.356-MIUI-NONKSU-NBP.zip"
+GX_ROOT="none"
+GX_SUSFS="0"
+GX_BP="0"
+GX_DEFCONFIG="vendor/miatoll-perf_defconfig"
