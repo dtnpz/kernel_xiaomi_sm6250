@@ -9,6 +9,7 @@ on:
       - miatoll-nexus45-bp
       - miatoll-nexus45-bp-xxksu
       - miatoll-nexus45-bp-ksun
+      - work-n45-integrations-v2
   workflow_dispatch:
 
 permissions:
