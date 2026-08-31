@@ -1,0 +1,44 @@
+name: Build N45 variant
+
+on:
+  push:
+    branches:
+      - miatoll-nexus45-nbp
+      - miatoll-nexus45-nbp-xxksu
+      - miatoll-nexus45-nbp-ksun
+      - miatoll-nexus45-bp
+      - miatoll-nexus45-bp-xxksu
+      - miatoll-nexus45-bp-ksun
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout variant
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            bc bison build-essential cpio curl flex git libelf-dev \
+            libssl-dev libxml2-dev lz4 python3 rsync unzip wget zip \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      - name: Build and package
+        run: bash scripts/gx/build-n45.sh
+
+      - name: Upload flashable ZIP and build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: n45-${{ github.ref_name }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
