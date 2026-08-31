@@ -27,7 +27,6 @@ jobs:
         with:
           ref: miatoll-nexus45-base
           fetch-depth: 0
-          filter: blob:none
 
       - name: Sync latest branch head
         run: |
