@@ -16,6 +16,7 @@ source .gx-variant
 : "${GX_ROOT:=none}"
 : "${GX_SUSFS:=0}"
 : "${GX_BP:=0}"
+: "${GX_DEFCONFIG:=vendor/miatoll-perf_defconfig}"
 
 case "$GX_ROOT" in
   none|xxksu|ksun) ;;
@@ -30,10 +31,32 @@ if [[ "$GX_ROOT" == none && "$GX_SUSFS" == 1 ]]; then
   exit 2
 fi
 
+# The source tree still carries Velvet's old localversion. Give every build an
+# unambiguous N45 banner without keeping six duplicate defconfigs in git.
+defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
+if [[ ! -f "$defconfig_path" ]]; then
+  echo "Defconfig not found: $defconfig_path" >&2
+  exit 2
+fi
+python3 - "$defconfig_path" "$GX_VARIANT" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+variant = sys.argv[2]
+s = p.read_text()
+line = f'CONFIG_LOCALVERSION="-N45-{variant}"'
+pat = re.compile(r'^CONFIG_LOCALVERSION=.*$', re.M)
+if pat.search(s):
+    s = pat.sub(line, s, count=1)
+else:
+    s = line + '\n' + s
+p.write_text(s)
+PY
+
 # Layer order is deliberately fixed so every family differs minimally:
 # common N45 base -> optional selected BPF backports -> one root -> SUSFS.
 if [[ "$GX_BP" == 1 ]]; then
-  if [[ ! -x scripts/gx/apply-bp510.sh ]]; then
+  if [[ ! -f scripts/gx/apply-bp510.sh ]]; then
     echo "BP requested but scripts/gx/apply-bp510.sh is not ready." >&2
     exit 3
   fi
@@ -44,14 +67,14 @@ case "$GX_ROOT" in
   none)
     ;;
   xxksu)
-    if [[ ! -x scripts/gx/setup-xxksu.sh ]]; then
+    if [[ ! -f scripts/gx/setup-xxksu.sh ]]; then
       echo "xxKSU requested but setup script is not ready." >&2
       exit 3
     fi
     bash scripts/gx/setup-xxksu.sh
     ;;
   ksun)
-    if [[ ! -x scripts/gx/setup-ksun.sh ]]; then
+    if [[ ! -f scripts/gx/setup-ksun.sh ]]; then
       echo "KSUN requested but setup script is not ready." >&2
       exit 3
     fi
@@ -60,7 +83,7 @@ case "$GX_ROOT" in
 esac
 
 if [[ "$GX_SUSFS" == 1 ]]; then
-  if [[ ! -x scripts/gx/setup-susfs.sh ]]; then
+  if [[ ! -f scripts/gx/setup-susfs.sh ]]; then
     echo "SUSFS requested but setup script is not ready." >&2
     exit 3
   fi
