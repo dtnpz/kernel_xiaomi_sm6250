@@ -1,0 +1,113 @@
+name: Upstream OpenELA to 4.14.356
+
+on:
+  push:
+    branches:
+      - miatoll-nexus45-base
+    paths:
+      - .github/workflows/openela-upstream.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: openela-upstream-miatoll-nexus45-base
+  cancel-in-progress: false
+
+jobs:
+  upstream:
+    runs-on: ubuntu-24.04
+    env:
+      BRANCH: miatoll-nexus45-base
+      OPENELA_349: e4913de9177c1394c3b2b73c86f5e7d9d9614388
+    steps:
+      - name: Checkout full Velvet history
+        uses: actions/checkout@v4
+        with:
+          ref: miatoll-nexus45-base
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "gx-kernel-bot"
+          git config user.email "gx-kernel-bot@users.noreply.github.com"
+          git config rerere.enabled true
+          git config rerere.autoupdate true
+          git config merge.conflictstyle zdiff3
+
+      - name: Fetch OpenELA release tags
+        run: |
+          git remote remove openela 2>/dev/null || true
+          git remote add openela https://github.com/openela/kernel-lts.git
+          for v in 350 351 352 353 354 355 356; do
+            git fetch --no-tags openela \
+              "refs/tags/v4.14.${v}-openela:refs/tags/v4.14.${v}-openela"
+          done
+
+      - name: Verify 4.14.349 ancestry
+        run: |
+          git merge-base --is-ancestor "$OPENELA_349" HEAD
+          echo "Verified: Velvet base contains the real OpenELA 4.14.349 history."
+
+      - name: Merge OpenELA releases sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf openela-conflict-report
+
+          for v in 350 351 352 353 354 355 356; do
+            tag="v4.14.${v}-openela"
+            commit="$(git rev-list -n1 "$tag")"
+
+            echo "============================================================"
+            echo "OpenELA ${tag} -> ${commit}"
+            echo "============================================================"
+
+            if git merge-base --is-ancestor "$commit" HEAD; then
+              echo "$tag is already present; skipping."
+              continue
+            fi
+
+            set +e
+            git merge --no-ff --no-edit "$commit"
+            rc=$?
+            set -e
+
+            if [ "$rc" -ne 0 ]; then
+              mkdir -p openela-conflict-report/base openela-conflict-report/ours openela-conflict-report/theirs
+              printf '%s\n' "$tag" > openela-conflict-report/FAILED_TAG.txt
+              git status --porcelain=v2 > openela-conflict-report/STATUS.txt || true
+              git diff --name-only --diff-filter=U > openela-conflict-report/UNMERGED.txt || true
+              git diff --cc > openela-conflict-report/CONFLICTS.diff || true
+
+              while IFS= read -r path; do
+                [ -n "$path" ] || continue
+                mkdir -p "openela-conflict-report/base/$(dirname "$path")"
+                mkdir -p "openela-conflict-report/ours/$(dirname "$path")"
+                mkdir -p "openela-conflict-report/theirs/$(dirname "$path")"
+                git show ":1:$path" > "openela-conflict-report/base/$path" 2>/dev/null || true
+                git show ":2:$path" > "openela-conflict-report/ours/$path" 2>/dev/null || true
+                git show ":3:$path" > "openela-conflict-report/theirs/$path" 2>/dev/null || true
+              done < openela-conflict-report/UNMERGED.txt
+
+              echo "Conflict at $tag. No automatic ours/theirs resolution was used."
+              cat openela-conflict-report/UNMERGED.txt || true
+              exit 1
+            fi
+
+            echo "Merged $tag successfully; preserving this checkpoint."
+            git push origin "HEAD:$BRANCH"
+          done
+
+          echo "All OpenELA release merges through 4.14.356 completed."
+          grep -E '^(VERSION|PATCHLEVEL|SUBLEVEL|EXTRAVERSION) *=' Makefile | head -n 4
+
+      - name: Upload conflict report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openela-conflict-report
+          path: openela-conflict-report
+          if-no-files-found: ignore
+          retention-days: 7
