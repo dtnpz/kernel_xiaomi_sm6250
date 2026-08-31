@@ -32,7 +32,10 @@ echo "[N45] applying SUSFS ${SUSFS_COMMIT} to $root_kind"
 cp -f "$SUS_DIR"/kernel_patches/fs/* fs/
 cp -f "$SUS_DIR"/kernel_patches/include/linux/* include/linux/
 
-KERNEL_PATCH="$SUS_DIR/kernel_patches/50_add_susfs_in_kernel-4.14.patch"
+KERNEL_PATCH_SOURCE="$SUS_DIR/kernel_patches/50_add_susfs_in_kernel-4.14.patch"
+KERNEL_PATCH_TMP="$(mktemp)"
+cp -f "$KERNEL_PATCH_SOURCE" "$KERNEL_PATCH_TMP"
+KERNEL_PATCH="$KERNEL_PATCH_TMP"
 KSU_PATCH="$SUS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 KSU_PATCH_TMP=""
 
@@ -124,15 +127,22 @@ PY
   echo "[N45] adapted only kernel_umount first hunk for pinned xxKSU v3.3.0-2"
   KSU_PATCH="$KSU_PATCH_TMP"
 fi
-trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"' EXIT
+trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"; [[ -z "${KERNEL_PATCH_TMP:-}" ]] || rm -f "$KERNEL_PATCH_TMP"' EXIT
 
-# First do dry-runs so a partial patch is never mistaken for a valid layer.
+# Root-side patch must be clean before we touch the vendor kernel patch.
 if ! (cd "$KSU_DIR" && patch --batch --dry-run --forward -p1 < "$KSU_PATCH"); then
   echo "[N45] SUSFS KernelSU patch does not apply cleanly to $root_kind; adaptation required." >&2
   exit 5
 fi
+
+# Adapt only the six generic 4.14 hunks proven by CI to mismatch this Miatoll
+# tree. The helper exact-matches source anchors and removes only those obsolete
+# hunks from this temporary patch. Every other SUSFS hunk remains upstream and
+# must still pass patch --dry-run below.
+python3 scripts/gx/adapt-susfs-414.py "$KERNEL_PATCH"
+
 if ! patch --batch --dry-run --forward -p1 < "$KERNEL_PATCH"; then
-  echo "[N45] SUSFS 4.14 kernel patch does not apply cleanly to this vendor tree; adaptation required." >&2
+  echo "[N45] adapted SUSFS 4.14 kernel patch still does not apply cleanly; further adaptation required." >&2
   exit 6
 fi
 
