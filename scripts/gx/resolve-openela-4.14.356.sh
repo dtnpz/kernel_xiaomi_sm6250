@@ -97,8 +97,7 @@ for needle in (
 # role/sleep handling. The two conflicts are that vendor implementation versus
 # the old generic implementation. Preserve Velvet there, while retaining the
 # OpenELA 4.14.356 dis-split property and PM-complete additions that Git merged
-# outside the conflict hunks. Miatoll has no snps,dis-split-quirk DT property,
-# so do not inject the Hisilicon-specific host-init write into Qualcomm's wrapper.
+# outside the conflict hunks.
 core = resolve('drivers/usb/dwc3/core.c', 2, lambda n, ours, base, theirs: ours)
 for needle in (
     'void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode)',
@@ -112,9 +111,9 @@ for needle in (
 
 
 # Velvet has a much newer F2FS and removed volatile-write implementation.
-# Keep its newer code in the sole conflict. The OpenELA FMODE_WRITE checks for
-# the three atomic-write ioctls in Velvet auto-merge outside this conflict.
-f2fs_file = resolve('fs/f2fs/file.c', 1, lambda n, ours, base, theirs: ours)
+# Keep its newer code in both overlap blocks. The OpenELA FMODE_WRITE checks for
+# the three atomic-write ioctls in Velvet auto-merge outside these conflicts.
+f2fs_file = resolve('fs/f2fs/file.c', 2, lambda n, ours, base, theirs: ours)
 for fn in (
     'f2fs_ioc_start_atomic_write',
     'f2fs_ioc_commit_atomic_write',
@@ -194,7 +193,7 @@ def selinux_choice(n, ours, base, theirs):
     for needle in ('if (*ppos)', 'if (!count)', 'if (count > 64 * 1024 * 1024)'):
         if needle not in theirs:
             raise SystemExit(f'selinuxfs OpenELA side missing reviewed check: {needle}')
-    return '''\t/* no partial writes */
+    prefix = '''\t/* no partial writes */
 \tif (*ppos)
 \t\treturn -EINVAL;
 \t/* no empty policies */
@@ -206,6 +205,7 @@ def selinux_choice(n, ours, base, theirs):
 
 \tmutex_lock(&fsi->mutex);
 '''
+    return prefix
 
 selinux = resolve('security/selinux/selinuxfs.c', 1, selinux_choice)
 for needle in (
