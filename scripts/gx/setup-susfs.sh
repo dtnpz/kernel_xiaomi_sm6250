@@ -41,7 +41,7 @@ KSU_PATCH_TMP=""
 # kernel/{feature,hook,selinux,supercall} and refuse it if its identity changes.
 if [[ "$root_kind" == "xxksu" ]]; then
   XX_SUSFS_PATCH_COMMIT="548e17b0606fe672ccbb66267c2304a75590456d"
-  XX_SUSFS_PATCH_SHA256="cb4078ad33a3d987a19b89618407a445c62b2c88857fe208328627c4468318c7"
+  XX_SUSFS_PATCH_SHA256="c99f58a81bf0b297b7053775bae675fe2671ab16acd1f77fc128f37eca240a4d"
   KSU_PATCH_TMP="$(mktemp)"
   curl -fsSL --retry 3 --retry-delay 2 \
     "https://raw.githubusercontent.com/juniarafi213/workflow/${XX_SUSFS_PATCH_COMMIT}/0001-xxKSU-kernel-implement-susfs-v2.1.0-De-inlined.patch" \
