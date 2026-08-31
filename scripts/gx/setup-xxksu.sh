@@ -9,7 +9,7 @@ source gx-sources.lock
 DEFCONFIG="arch/arm64/configs/vendor/miatoll-perf_defconfig"
 
 rm -rf KernelSU
-rm -f drivers/kernelsu
+rm -rf drivers/kernelsu
 
 SETUP_URL="https://raw.githubusercontent.com/backslashxx/KernelSU/${XXKSU_COMMIT}/kernel/setup.sh"
 echo "[N45] integrating backslashxx KernelSU ${XXKSU_TAG} (${XXKSU_COMMIT})"
