@@ -33,18 +33,7 @@ jobs:
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Build and package
-        run: |
-          set -o pipefail
-          bash scripts/gx/build-n45.sh 2>&1 | tee build.log
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: n45-build-log-${{ github.ref_name }}
-          path: build.log
-          if-no-files-found: warn
-          retention-days: 7
+        run: bash scripts/gx/build-n45.sh
 
       - name: Upload flashable ZIP and build metadata
         uses: actions/upload-artifact@v4
