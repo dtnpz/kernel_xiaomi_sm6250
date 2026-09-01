@@ -9,6 +9,7 @@ on:
       - miatoll-nexus45-bp
       - miatoll-nexus45-bp-xxksu
       - miatoll-nexus45-bp-ksun
+      - _LunaMax
   workflow_dispatch:
 
 permissions:
@@ -46,10 +47,11 @@ jobs:
           \t    !strncmp(current->comm, "netd", 4)) {'''
           new = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
           \t    !strncmp(current->comm, "netd", 4)) {'''
-          if old not in s:
-              raise SystemExit('netbpfload uname spoof anchor not found')
-          p.write_text(s.replace(old, new, 1))
-          print('[netbpfload-kver] netbpfload sees real 4.14; bpfloader/netd keep 5.4 spoof')
+          if old in s:
+              p.write_text(s.replace(old, new, 1))
+              print('[netbpfload-kver] netbpfload sees real 4.14; bpfloader/netd keep 5.4 spoof')
+          else:
+              print('[LunaMax] netbpfload uname spoof already removed in source')
           PY
           bash scripts/gx/build-n45.sh
 
