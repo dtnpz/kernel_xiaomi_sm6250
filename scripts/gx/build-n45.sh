@@ -58,6 +58,7 @@ printf '[N45] kernel: %s\n' "$(make -s kernelversion)"
 
 bash scripts/gx/prepare-variant.sh
 bash scripts/gx/apply-bpf-mmapable-array-v2.sh
+bash scripts/gx/apply-bpf-failure-trace.sh
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
