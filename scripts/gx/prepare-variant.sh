@@ -103,6 +103,28 @@ if [[ "$GX_SUSFS" == 1 ]]; then
     exit 3
   fi
   bash scripts/gx/setup-susfs.sh "$GX_ROOT"
+
+  if [[ ! -f scripts/gx/add-susfs-v155-bridges.py ]]; then
+    echo "SUSFS v1.5.5 ABI bridge helper missing." >&2
+    exit 3
+  fi
+  case "$GX_ROOT" in
+    xxksu) KSU_DIR="$ROOT_DIR/KernelSU" ;;
+    ksun)  KSU_DIR="$ROOT_DIR/KernelSU-Next" ;;
+    *) echo "SUSFS ABI bridge requires a rooted variant." >&2; exit 3 ;;
+  esac
+  python3 scripts/gx/add-susfs-v155-bridges.py "$KSU_DIR" "$GX_ROOT"
+
+  # ProjectVelvet carries legacy manual KernelSU call sites.  They are needed
+  # by KSUN's intentional manual-hook integration, but modern xxKSU provides
+  # its own syscall/LSM/input paths and does not export those old callbacks.
+  if [[ "$GX_ROOT" == "xxksu" ]]; then
+    if [[ ! -f scripts/gx/strip-xxksu-legacy-vendor-hooks.py ]]; then
+      echo "xxKSU legacy vendor-hook cleanup helper missing." >&2
+      exit 3
+    fi
+    python3 scripts/gx/strip-xxksu-legacy-vendor-hooks.py
+  fi
 fi
 
 echo "[N45] variant preparation complete: $GX_VARIANT"

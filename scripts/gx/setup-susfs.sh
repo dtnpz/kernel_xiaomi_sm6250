@@ -84,8 +84,10 @@ if not text.endswith("\n"):
     text += "\n"
 p.write_text(text)
 PY
+
+  python3 scripts/gx/adapt-ksun-susfs-v155.py "$KSU_DIR" "$KSU_PATCH_TMP"
   echo "[N45] KSUN SUSFS adapter sha256 verified: $actual_patch_sha"
-  echo "[N45] preserved pinned KSUN Kbuild version logic"
+  echo "[N45] preserved pinned KSUN Kbuild logic and adapted 2.2-only APIs to v1.5.5"
   KSU_PATCH="$KSU_PATCH_TMP"
 fi
 trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"; [[ -z "${KERNEL_PATCH_TMP:-}" ]] || rm -f "$KERNEL_PATCH_TMP"' EXIT
@@ -95,8 +97,6 @@ if ! (cd "$KSU_DIR" && patch --batch --dry-run --forward -p1 < "$KSU_PATCH"); th
   exit 5
 fi
 
-# Keep the proven vendor adapter intact; the wrapper changes only its brittle
-# newuname() function-bound parser into an exact unique-body transform.
 python3 scripts/gx/run-adapt-susfs-414.py "$KERNEL_PATCH"
 python3 scripts/gx/adapt-susfs-414-readdir-compat.py "$KERNEL_PATCH"
 
@@ -107,6 +107,28 @@ fi
 
 (cd "$KSU_DIR" && patch --batch --forward -p1 < "$KSU_PATCH")
 patch --batch --forward -p1 < "$KERNEL_PATCH"
+
+# The pinned v1.5.5 core has no SUS_MAP implementation. Remove the 2.2-only
+# menu entry after the verified adapter applies so effective .config cannot
+# advertise a feature that is not present.
+if [[ "$root_kind" == "ksun" ]]; then
+  python3 - "$KSU_DIR/kernel/Kconfig" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+start = s.find('config KSU_SUSFS_SUS_MAP\n')
+if start != -1:
+    end = s.find('\nendmenu\n', start)
+    if end == -1:
+        raise SystemExit('KSUN Kconfig SUS_MAP block has no menu terminator')
+    block = s[start:end]
+    if 'hide some mmapped real file' not in block or 'depends on KSU_SUSFS' not in block:
+        raise SystemExit('refusing unexpected KSUN SUS_MAP block removal')
+    s = s[:start] + s[end:]
+    p.write_text(s)
+PY
+fi
 
 python3 <<'PY'
 from pathlib import Path
@@ -129,5 +151,6 @@ grep -Fxq 'CONFIG_KSU_SUSFS=y' arch/arm64/configs/vendor/miatoll-perf_defconfig
 [[ -s fs/susfs.c ]]
 [[ -s include/linux/susfs.h ]]
 grep -Fq 'config KSU_SUSFS' "$KSU_DIR/kernel/Kconfig"
+! grep -Fq 'config KSU_SUSFS_SUS_MAP' "$KSU_DIR/kernel/Kconfig"
 
 echo "[N45] SUSFS 4.14 layer applied cleanly"
