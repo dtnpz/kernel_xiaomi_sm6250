@@ -135,11 +135,12 @@ if ! (cd "$KSU_DIR" && patch --batch --dry-run --forward -p1 < "$KSU_PATCH"); th
   exit 5
 fi
 
-# Adapt only the six generic 4.14 hunks proven by CI to mismatch this Miatoll
-# tree. The helper exact-matches source anchors and removes only those obsolete
-# hunks from this temporary patch. Every other SUSFS hunk remains upstream and
-# must still pass patch --dry-run below.
+# Adapt only the generic 4.14 hunks proven by CI to mismatch this Miatoll tree.
+# Both helpers exact-match source anchors and remove only superseded hunks from
+# this temporary patch. Every other SUSFS hunk remains upstream and must still
+# pass patch --dry-run below.
 python3 scripts/gx/adapt-susfs-414.py "$KERNEL_PATCH"
+python3 scripts/gx/adapt-susfs-414-readdir-compat.py "$KERNEL_PATCH"
 
 if ! patch --batch --dry-run --forward -p1 < "$KERNEL_PATCH"; then
   echo "[N45] adapted SUSFS 4.14 kernel patch still does not apply cleanly; further adaptation required." >&2
