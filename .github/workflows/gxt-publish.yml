@@ -1,0 +1,148 @@
+name: Publish GXT-Kernel 4.14.356 r1
+
+on:
+  push:
+    branches:
+      - gxt-release-4.14.356-r1
+    paths:
+      - .github/workflows/gxt-publish.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: gxt-4.14.356-miatoll-r1
+      TARGET_SHA: 1c58ebb08cba577910b48757825245afada3e014
+    steps:
+      - name: Download six verified build artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p downloads dist
+
+          gh run download 33557608665 --repo "$GITHUB_REPOSITORY" --name n45-miatoll-nexus45-nbp --dir downloads/nonksu-nbp
+          gh run download 33557661931 --repo "$GITHUB_REPOSITORY" --name n45-miatoll-nexus45-nbp-xxksu --dir downloads/xxksu-nbp
+          gh run download 33557693783 --repo "$GITHUB_REPOSITORY" --name n45-miatoll-nexus45-nbp-ksun --dir downloads/ksun-nbp
+          gh run download 33557737291 --repo "$GITHUB_REPOSITORY" --name n45-miatoll-nexus45-bp --dir downloads/nonksu-bp
+          gh run download 33557804698 --repo "$GITHUB_REPOSITORY" --name n45-miatoll-nexus45-bp-xxksu --dir downloads/xxksu-bp
+          gh run download 33557837723 --repo "$GITHUB_REPOSITORY" --name n45-miatoll-nexus45-bp-ksun --dir downloads/ksun-bp
+
+          find downloads -type f \( -name 'GXT-Kernel-*.zip' -o -name 'GXT-Kernel-*.zip.sha256' -o -name 'GXT-Kernel-*.zip.md5' \) -exec cp {} dist/ \;
+
+      - name: Verify exact GXT release set and branding
+        run: |
+          set -euo pipefail
+
+          variants=(
+            NONKSU-NBP
+            XXKSU-SUSFS-NBP
+            KSUN330-SUSFS-NBP
+            NONKSU-BP
+            XXKSU-SUSFS-BP
+            KSUN330-SUSFS-BP
+          )
+
+          for variant in "${variants[@]}"; do
+            zip="GXT-Kernel-4.14.356-MIUI-${variant}.zip"
+            test -s "dist/$zip"
+            test -s "dist/$zip.sha256"
+            test -s "dist/$zip.md5"
+
+            expected_sha="$(awk '{print $1}' "dist/$zip.sha256")"
+            actual_sha="$(sha256sum "dist/$zip" | awk '{print $1}')"
+            test "$expected_sha" = "$actual_sha"
+
+            expected_md5="$(awk '{print $1}' "dist/$zip.md5")"
+            actual_md5="$(md5sum "dist/$zip" | awk '{print $1}')"
+            test "$expected_md5" = "$actual_md5"
+
+            cfg="$(find downloads -type f -name "${variant}.config" -print -quit)"
+            test -n "$cfg"
+            grep -Fxq "CONFIG_LOCALVERSION=\"-Gxter-${variant}-FuckMiatollCommu\"" "$cfg"
+
+            unzip -p "dist/$zip" anykernel.sh > /tmp/anykernel.sh
+            grep -Fq 'kernel.string=gxter-Kernel by maintainer zared' /tmp/anykernel.sh
+
+            unzip -p "dist/$zip" Image.gz > /tmp/gxt-Image.gz
+            gzip -dc /tmp/gxt-Image.gz > /tmp/gxt-Image
+            strings /tmp/gxt-Image > /tmp/gxt-Image.strings
+            grep -Fq "4.14.356-Gxter-${variant}-FuckMiatollCommu" /tmp/gxt-Image.strings
+          done
+
+          test "$(find dist -maxdepth 1 -type f -name 'GXT-Kernel-4.14.356-MIUI-*.zip' | wc -l)" -eq 6
+
+          : > dist/SHA256SUMS
+          : > dist/MD5SUMS
+          for variant in "${variants[@]}"; do
+            zip="GXT-Kernel-4.14.356-MIUI-${variant}.zip"
+            sha256sum "dist/$zip" | sed 's#  dist/#  #' >> dist/SHA256SUMS
+            md5sum "dist/$zip" | sed 's#  dist/#  #' >> dist/MD5SUMS
+          done
+
+      - name: Write release notes
+        run: |
+          cat > dist/RELEASE_NOTES.md <<'EOF'
+          # GXT-Kernel 4.14.356 — Miatoll r1
+
+          Maintainer: **zared**
+
+          This is the first GXT-Kernel release built from the fixed OpenELA 4.14.356 Miatoll tree.
+
+          ## Device validation
+
+          `NONKSU-NBP` was physically tested on Joyeuse / MIUI 14 Android 12 and boots successfully. 4G, Wi-Fi, and tethering are confirmed working. The other five variants passed full CI compile, link, packaging, checksum, kernel-release-string, and AnyKernel branding verification; rooted variants still need normal on-device validation.
+
+          ## Important fixes
+
+          - Fixed the broken `devm_clk` resource handling that caused the early Qualcomm DWC3 kernel panic.
+          - Added the Android-required mmapable BPF array compatibility used by the Connectivity APEX.
+          - Fixed the `netbpfload` compatibility path: `netbpfload` now sees the real 4.14 kernel release instead of being forced down a fake 5.4 BPF/BTF path that this 4.14 tree does not implement.
+          - Preserved the working BP/NBP split and separate xxKSU / KernelSU-Next + SUSFS integrations.
+
+          ## Branding
+
+          Flash installer banner: **gxter-Kernel by maintainer zared**
+
+          Kernel release format:
+          `4.14.356-Gxter-<VARIANT>-FuckMiatollCommu`
+
+          ## Variants
+
+          - `GXT-Kernel-4.14.356-MIUI-NONKSU-NBP.zip`
+          - `GXT-Kernel-4.14.356-MIUI-XXKSU-SUSFS-NBP.zip`
+          - `GXT-Kernel-4.14.356-MIUI-KSUN330-SUSFS-NBP.zip`
+          - `GXT-Kernel-4.14.356-MIUI-NONKSU-BP.zip`
+          - `GXT-Kernel-4.14.356-MIUI-XXKSU-SUSFS-BP.zip`
+          - `GXT-Kernel-4.14.356-MIUI-KSUN330-SUSFS-BP.zip`
+
+          ## Maintainer rant
+
+          Miatoll community — **ไอ้พวกชาติเปรต งก kernel source/upstream จนกูต้องมานั่งแก้ upstream เอง เสียเวลาที่ควรเอาไปทำ KSUN update ทั้งที่ SELinux hide mod โคตรจำเป็น พวกเหี้ยนี่ไม่ทำกันเองก็เลยต้องมานั่งทำแทน.**
+
+          Back up your current boot image before flashing. Rooted variants are separate builds; do not assume one root implementation behaves exactly like another.
+          EOF
+
+      - name: Publish GitHub release
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; refusing to overwrite it." >&2
+            exit 2
+          fi
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title 'GXT-Kernel 4.14.356 — Miatoll r1' \
+            --notes-file dist/RELEASE_NOTES.md \
+            dist/GXT-Kernel-4.14.356-MIUI-*.zip \
+            dist/GXT-Kernel-4.14.356-MIUI-*.zip.sha256 \
+            dist/GXT-Kernel-4.14.356-MIUI-*.zip.md5 \
+            dist/SHA256SUMS \
+            dist/MD5SUMS
