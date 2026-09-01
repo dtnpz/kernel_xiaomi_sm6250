@@ -1,315 +1,300 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel)"
-cd "$ROOT"
-
-python3 - <<'PY'
+python3 <<'PY'
 from pathlib import Path
 import re
 
 
-def patch(path, pattern, repl, label, flags=re.M):
+def sub_once(path, pattern, repl, label, flags=re.M | re.S):
     p = Path(path)
     s = p.read_text()
     ns, n = re.subn(pattern, repl, s, count=1, flags=flags)
     if n != 1:
-        raise SystemExit(f'{path}: {label}: anchor not found')
+        raise SystemExit(f"{path}: {label}: expected one match, got {n}")
     p.write_text(ns)
-    print(f'[bpf-mmap] {label}: applied')
+    print(f"[bpf-mmap] {label}: applied")
 
-# UAPI flag used by Android Connectivity netd.o blocked_ports_map.
-p = Path('include/uapi/linux/bpf.h')
-s = p.read_text()
-if 'BPF_F_MMAPABLE' not in s:
-    s, n = re.subn(
-        r'(?P<line>^\s*BPF_F_RDONLY_PROG\s*=\s*\(1U\s*<<\s*7\),\s*$)',
-        r'\g<line>\n\tBPF_F_MMAPABLE\t\t= (1U << 10),',
-        s, count=1, flags=re.M)
-    if n != 1:
-        raise SystemExit('include/uapi/linux/bpf.h: BPF_F_MMAPABLE anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] uapi BPF_F_MMAPABLE: applied')
-else:
-    print('[bpf-mmap] uapi BPF_F_MMAPABLE: already present')
 
-# Forward declaration for map mmap operation.
-p = Path('include/linux/bpf.h')
-s = p.read_text()
-if 'struct vm_area_struct;' not in s:
-    s, n = re.subn(r'(?m)^(struct bpf_map;\s*)$', r'\1\nstruct vm_area_struct;', s, count=1)
-    if n != 1:
-        raise SystemExit('include/linux/bpf.h: vm_area forward declaration anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] vm_area forward declaration: applied')
-else:
-    print('[bpf-mmap] vm_area forward declaration: already present')
-
-# map->ops mmap callback.
-p = Path('include/linux/bpf.h')
-s = p.read_text()
-if 'int (*map_mmap)(struct bpf_map *map, struct vm_area_struct *vma);' not in s:
-    s, n = re.subn(
-        r'(?m)^(\s*void \(\*map_release_uref\)\(struct bpf_map \*map\);\s*)$',
-        r'\1\n\tint (*map_mmap)(struct bpf_map *map, struct vm_area_struct *vma);',
-        s, count=1)
-    if n != 1:
-        raise SystemExit('include/linux/bpf.h: map mmap op anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] map mmap op: applied')
-else:
-    print('[bpf-mmap] map mmap op: already present')
-
-# mmapable allocator declaration.
-p = Path('include/linux/bpf.h')
-s = p.read_text()
-if 'bpf_map_area_mmapable_alloc' not in s:
-    s, n = re.subn(
-        r'(?m)^(void \*bpf_map_area_alloc\(size_t size, int numa_node\);\s*)$',
-        r'\1\nvoid *bpf_map_area_mmapable_alloc(size_t size, int numa_node);',
-        s, count=1)
-    if n != 1:
-        raise SystemExit('include/linux/bpf.h: mmapable allocator declaration anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] mmapable allocator declaration: applied')
-else:
-    print('[bpf-mmap] mmapable allocator declaration: already present')
-
-# syscall.c: mm include and mmapable vmalloc helper.
-p = Path('kernel/bpf/syscall.c')
-s = p.read_text()
-if '#include <linux/mm.h>' not in s:
-    s, n = re.subn(r'(?m)^(#include <linux/memcontrol.h>\s*)$', r'\1\n#include <linux/mm.h>', s, count=1)
-    if n != 1:
-        raise SystemExit('kernel/bpf/syscall.c: mm include anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] mm include: applied')
-else:
-    print('[bpf-mmap] mm include: already present')
-
-p = Path('kernel/bpf/syscall.c')
-s = p.read_text()
-if 'void *bpf_map_area_mmapable_alloc' not in s:
-    pat = r'(void \*bpf_map_area_alloc\(size_t size, int numa_node\)\s*\{.*?^\})'
-    m = re.search(pat, s, flags=re.M | re.S)
+def insert_after(path, pattern, text, present, label):
+    p = Path(path)
+    s = p.read_text()
+    if present in s:
+        print(f"[bpf-mmap] {label}: already applied")
+        return
+    m = re.search(pattern, s, flags=re.M)
     if not m:
-        raise SystemExit('kernel/bpf/syscall.c: bpf_map_area_alloc function not found')
-    extra = r'''
+        raise SystemExit(f"{path}: {label}: anchor not found")
+    p.write_text(s[:m.end()] + text + s[m.end():])
+    print(f"[bpf-mmap] {label}: applied")
+
+
+# UAPI bit used by Android's Connectivity APEX BPF map metadata.
+insert_after(
+    "include/uapi/linux/bpf.h",
+    r'^#define\s+BPF_F_RDONLY_PROG\s+\(1U\s*<<\s*7\)\s*$',
+    "\n\n/* Enable memory-mapping BPF map */\n#define BPF_F_MMAPABLE\t\t(1U << 10)",
+    "BPF_F_MMAPABLE",
+    "uapi BPF_F_MMAPABLE",
+)
+
+# Map operation and allocator declarations.
+insert_after(
+    "include/linux/bpf.h",
+    r'^struct bpf_map;$',
+    "\nstruct vm_area_struct;",
+    "struct vm_area_struct;",
+    "vm_area forward declaration",
+)
+insert_after(
+    "include/linux/bpf.h",
+    r'^\s*u32 \(\*map_fd_sys_lookup_elem\)\(void \*ptr\);$',
+    "\n\tint (*map_mmap)(struct bpf_map *map, struct vm_area_struct *vma);",
+    "int (*map_mmap)(struct bpf_map *map, struct vm_area_struct *vma);",
+    "map mmap op",
+)
+insert_after(
+    "include/linux/bpf.h",
+    r'^void \*bpf_map_area_alloc\(size_t size, int numa_node\);$',
+    "\nvoid *bpf_map_area_mmapable_alloc(size_t size, int numa_node);",
+    "bpf_map_area_mmapable_alloc",
+    "mmapable allocator declaration",
+)
+
+# syscall.c needs VMA definitions.
+insert_after(
+    "kernel/bpf/syscall.c",
+    r'^#include <linux/vmalloc\.h>$',
+    "\n#include <linux/mm.h>",
+    "#include <linux/mm.h>",
+    "mm include",
+)
+
+# Keep the old allocator for ordinary maps and force mmapable maps into
+# VM_USERMAP vmalloc backing. __vmalloc_node_range exists in this 4.14 tree.
+sub_once(
+    "kernel/bpf/syscall.c",
+    r'void \*bpf_map_area_alloc\(size_t size, int numa_node\)\n\{.*?\n\}\n(?=\nvoid bpf_map_area_free)',
+    '''static void *__bpf_map_area_alloc(size_t size, int numa_node, bool mmapable)
+{
+\tconst gfp_t flags = __GFP_NOWARN | __GFP_NORETRY | __GFP_ZERO;
+\tvoid *area;
+
+\tif (!mmapable && size <= (PAGE_SIZE << PAGE_ALLOC_COSTLY_ORDER)) {
+\t\tarea = kmalloc_node(size, GFP_USER | flags, numa_node);
+\t\tif (area != NULL)
+\t\t\treturn area;
+\t}
+
+\tif (mmapable) {
+\t\tBUG_ON(!PAGE_ALIGNED(size));
+\t\treturn __vmalloc_node_range(size, PAGE_SIZE,
+\t\t\t\tVMALLOC_START, VMALLOC_END,
+\t\t\t\tGFP_KERNEL | flags, PAGE_KERNEL,
+\t\t\t\tVM_USERMAP, numa_node,
+\t\t\t\t__builtin_return_address(0));
+\t}
+
+\treturn __vmalloc_node_flags_caller(size, numa_node, GFP_KERNEL | flags,
+\t\t\t\t\t   __builtin_return_address(0));
+}
+
+void *bpf_map_area_alloc(size_t size, int numa_node)
+{
+\treturn __bpf_map_area_alloc(size, numa_node, false);
+}
 
 void *bpf_map_area_mmapable_alloc(size_t size, int numa_node)
 {
-	/* vmalloc backing is page aligned and remap_vmalloc_range() can expose it
-	 * through a BPF map fd. Keep the 4.14 accounting/NUMA behavior identical
-	 * to bpf_map_area_alloc() where possible.
-	 */
-	const gfp_t flags = GFP_KERNEL | __GFP_NOWARN | __GFP_ZERO;
-	void *area;
-
-	if (size <= (PAGE_SIZE << PAGE_ALLOC_COSTLY_ORDER)) {
-		area = kmalloc_node(size, flags | __GFP_NORETRY, numa_node);
-		if (area != NULL)
-			return area;
-	}
-
-	return __vmalloc_node_flags_caller(size, numa_node,
-					 flags | __GFP_HIGHMEM,
-					 __builtin_return_address(0));
+\treturn __bpf_map_area_alloc(size, numa_node, true);
 }
-'''
-    s = s[:m.end()] + extra + s[m.end():]
-    p.write_text(s)
-    print('[bpf-mmap] mmapable BPF allocation: applied')
-else:
-    print('[bpf-mmap] mmapable BPF allocation: already present')
+''',
+    "mmapable BPF allocation",
+)
 
-# syscall.c map fd mmap path. Android only needs array-map fd mmap here.
-p = Path('kernel/bpf/syscall.c')
-s = p.read_text()
-if 'static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)' not in s:
-    anchor = re.search(r'static ssize_t bpf_dummy_write\(struct file \*filp, const char __user \*buf,\s*size_t siz, loff_t \*ppos\)\s*\{.*?^\}', s, flags=re.M | re.S)
-    if not anchor:
-        raise SystemExit('kernel/bpf/syscall.c: BPF map mmap implementation: anchor not found')
-    extra = r'''
+# Map-fd mmap support. The initial mmap must take one user ref; vm_ops.open
+# accounts for subsequent VMA clones and close drops every VMA ref.
+insert_after(
+    "kernel/bpf/syscall.c",
+    r'static ssize_t bpf_dummy_write\(struct file \*filp, const char __user \*buf,\n.*?^\}$',
+    '''
 
 static void bpf_map_mmap_open(struct vm_area_struct *vma)
 {
-	struct bpf_map *map = vma->vm_file->private_data;
+\tstruct bpf_map *map = vma->vm_file->private_data;
 
-	bpf_map_inc(map, false);
+\tWARN_ON_ONCE(IS_ERR(bpf_map_inc(map, true)));
 }
 
 static void bpf_map_mmap_close(struct vm_area_struct *vma)
 {
-	struct bpf_map *map = vma->vm_file->private_data;
+\tstruct bpf_map *map = vma->vm_file->private_data;
 
-	bpf_map_put(map);
+\tbpf_map_put_with_uref(map);
 }
 
 static const struct vm_operations_struct bpf_map_default_vmops = {
-	.open = bpf_map_mmap_open,
-	.close = bpf_map_mmap_close,
+\t.open = bpf_map_mmap_open,
+\t.close = bpf_map_mmap_close,
 };
 
 static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-	struct bpf_map *map = filp->private_data;
-	int err;
+\tstruct bpf_map *map = filp->private_data;
+\tstruct bpf_map *ref;
+\tint err;
 
-	if (!map->ops->map_mmap)
-		return -ENOTSUPP;
+\tif (!map->ops->map_mmap)
+\t\treturn -ENOTSUPP;
+\tif (!(vma->vm_flags & VM_SHARED))
+\t\treturn -EINVAL;
+\tif ((vma->vm_flags & VM_WRITE) && !(filp->f_mode & FMODE_WRITE))
+\t\treturn -EPERM;
+\tif ((vma->vm_flags & VM_READ) && !(filp->f_mode & FMODE_READ))
+\t\treturn -EPERM;
 
-	if (vma->vm_pgoff)
-		return -EINVAL;
+\tref = bpf_map_inc(map, true);
+\tif (IS_ERR(ref))
+\t\treturn PTR_ERR(ref);
 
-	if ((vma->vm_flags & VM_WRITE) && !(vma->vm_flags & VM_SHARED))
-		return -EINVAL;
-
-	err = map->ops->map_mmap(map, vma);
-	if (err)
-		return err;
-
-	vma->vm_ops = &bpf_map_default_vmops;
-	bpf_map_inc(map, false);
-	return 0;
+\tvma->vm_ops = &bpf_map_default_vmops;
+\terr = map->ops->map_mmap(map, vma);
+\tif (err) {
+\t\tvma->vm_ops = NULL;
+\t\tbpf_map_put_with_uref(map);
+\t}
+\treturn err;
 }
-'''
-    s = s[:anchor.start()] + extra + '\n' + s[anchor.start():]
-    p.write_text(s)
-    print('[bpf-mmap] BPF map mmap implementation: applied')
-else:
-    print('[bpf-mmap] BPF map mmap implementation: already present')
+''',
+    "static int bpf_map_mmap(struct file *filp",
+    "BPF map mmap implementation",
+)
 
-# Add mmap to bpf_map_fops.
-p = Path('kernel/bpf/syscall.c')
-s = p.read_text()
-if re.search(r'static const struct file_operations bpf_map_fops\s*=\s*\{[^}]*\.mmap\s*=\s*bpf_map_mmap', s, flags=re.S) is None:
-    s, n = re.subn(
-        r'(static const struct file_operations bpf_map_fops\s*=\s*\{.*?)(\n\};)',
-        lambda m: m.group(1) + '\n\t.mmap\t\t= bpf_map_mmap,' + m.group(2),
-        s, count=1, flags=re.M | re.S)
-    if n != 1:
-        raise SystemExit('kernel/bpf/syscall.c: bpf_map_fops anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] bpf_map_fops mmap: applied')
-else:
-    print('[bpf-mmap] bpf_map_fops mmap: already present')
+# Add mmap only to bpf_map_fops, not bpf_prog_fops.
+sub_once(
+    "kernel/bpf/syscall.c",
+    r'(const struct file_operations bpf_map_fops = \{.*?\n\s*\.write\s*=\s*bpf_dummy_write,)(\n\};)',
+    r'\1\n\t.mmap\t\t= bpf_map_mmap,\2',
+    "map fd mmap handler",
+)
 
-# arraymap: permit only Android-compatible flags and page-align mmap storage.
-p = Path('kernel/bpf/arraymap.c')
-s = p.read_text()
-if '#include <linux/mm.h>' not in s:
-    s, n = re.subn(r'(?m)^(#include <linux/filter.h>\s*)$', r'\1\n#include <linux/mm.h>', s, count=1)
-    if n != 1:
-        raise SystemExit('kernel/bpf/arraymap.c: mm include anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] arraymap mm include: applied')
-else:
-    print('[bpf-mmap] arraymap mm include: already present')
+# Plain ARRAY maps accept BPF_F_MMAPABLE. Other array-derived map types do not.
+sub_once(
+    "kernel/bpf/arraymap.c",
+    r'#define ARRAY_CREATE_FLAG_MASK \\\n\s*\(BPF_F_NUMA_NODE \| BPF_F_RDONLY \| BPF_F_WRONLY\)',
+    '#define ARRAY_CREATE_FLAG_MASK \\\n\t(BPF_F_NUMA_NODE | BPF_F_RDONLY | BPF_F_WRONLY | BPF_F_MMAPABLE)',
+    "array flag mask",
+)
 
-p = Path('kernel/bpf/arraymap.c')
-s = p.read_text()
-old = r'if \(attr->map_flags & ~\(BPF_F_NUMA_NODE \| BPF_F_RDONLY \| BPF_F_WRONLY\)\)'
-new = r'if (attr->map_flags & ~(BPF_F_NUMA_NODE | BPF_F_RDONLY | BPF_F_WRONLY |\n\t\t\t       BPF_F_MMAPABLE))'
-if re.search(old, s):
-    s = re.sub(old, new, s, count=1)
-    p.write_text(s)
-    print('[bpf-mmap] array allowed flags: applied')
-elif 'BPF_F_MMAPABLE' in s:
-    print('[bpf-mmap] array allowed flags: already present')
-else:
-    raise SystemExit('kernel/bpf/arraymap.c: array allowed flags anchor not found')
+insert_after(
+    "kernel/bpf/arraymap.c",
+    r'^\s*\(percpu && numa_node != NUMA_NO_NODE\)\)\n\s*return ERR_PTR\(-EINVAL\);$',
+    '''
 
-# Reject unsupported percpu mmap and calculate normal arrays with page rounding.
-p = Path('kernel/bpf/arraymap.c')
-s = p.read_text()
-if 'percpu && (attr->map_flags & BPF_F_MMAPABLE)' not in s:
-    s, n = re.subn(
-        r'(?m)^(\s*bool percpu = map_type == BPF_MAP_TYPE_PERCPU_ARRAY;\s*)$',
-        r'\1\n\n\tif (percpu && (attr->map_flags & BPF_F_MMAPABLE))\n\t\treturn ERR_PTR(-EINVAL);',
-        s, count=1)
-    if n != 1:
-        raise SystemExit('kernel/bpf/arraymap.c: percpu mmap reject anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] percpu mmap rejection: applied')
-else:
-    print('[bpf-mmap] percpu mmap rejection: already present')
+\tif (attr->map_type != BPF_MAP_TYPE_ARRAY &&
+\t    (attr->map_flags & BPF_F_MMAPABLE))
+\t\treturn ERR_PTR(-EINVAL);''',
+    "attr->map_type != BPF_MAP_TYPE_ARRAY &&",
+    "mmap only plain array",
+)
 
-p = Path('kernel/bpf/arraymap.c')
-s = p.read_text()
-if 'if (attr->map_flags & BPF_F_MMAPABLE)' not in s[s.find('static struct bpf_map *array_map_alloc'):s.find('static void array_map_free')]:
-    s, n = re.subn(
-        r'(array_size = sizeof\(\*array\) \+ array->map.max_entries \* elem_size;)',
-        r'\1\n\tif (attr->map_flags & BPF_F_MMAPABLE)\n\t\tarray_size = PAGE_ALIGN(array_size);',
-        s, count=1)
-    if n != 1:
-        raise SystemExit('kernel/bpf/arraymap.c: array size anchor not found')
-    p.write_text(s)
-    print('[bpf-mmap] mmap array size alignment: applied')
-else:
-    print('[bpf-mmap] mmap array size alignment: already present')
+sub_once(
+    "kernel/bpf/arraymap.c",
+    r'\tarray_size = sizeof\(\*array\);\n\tif \(percpu\)\n\t\tarray_size \+= \(u64\) max_entries \* sizeof\(void \*\);\n\telse\n\t\tarray_size \+= \(u64\) max_entries \* elem_size;',
+    '''\tarray_size = sizeof(*array);
+\tif (percpu) {
+\t\tarray_size += (u64) max_entries * sizeof(void *);
+\t} else if (attr->map_flags & BPF_F_MMAPABLE) {
+\t\t/* vmalloc is page-aligned; make array->value start on page 2 */
+\t\tarray_size = PAGE_ALIGN(array_size);
+\t\tarray_size += PAGE_ALIGN((u64) max_entries * elem_size);
+\t} else {
+\t\tarray_size += (u64) max_entries * elem_size;
+\t}''',
+    "page aligned mmapable array size",
+)
 
-# Use mmapable allocator for mmap arrays.
-p = Path('kernel/bpf/arraymap.c')
-s = p.read_text()
-needle = 'array = bpf_map_area_alloc(array_size, numa_node);'
-if needle in s:
-    s = s.replace(needle,
-'''if (attr->map_flags & BPF_F_MMAPABLE)
-		array = bpf_map_area_mmapable_alloc(array_size, numa_node);
-	else
-		array = bpf_map_area_alloc(array_size, numa_node);''', 1)
-    p.write_text(s)
-    print('[bpf-mmap] mmap array allocator selection: applied')
-elif 'bpf_map_area_mmapable_alloc(array_size, numa_node)' in s:
-    print('[bpf-mmap] mmap array allocator selection: already present')
-else:
-    raise SystemExit('kernel/bpf/arraymap.c: allocator selection anchor not found')
+sub_once(
+    "kernel/bpf/arraymap.c",
+    r'\t/\* allocate all map elements and zero-initialize them \*/\n\tarray = bpf_map_area_alloc\(array_size, numa_node\);\n\tif \(!array\)\n\t\treturn ERR_PTR\(-ENOMEM\);',
+    '''\t/* allocate all map elements and zero-initialize them */
+\tif (attr->map_flags & BPF_F_MMAPABLE) {
+\t\tvoid *data;
 
-# Array mmap op. We map only array->value through offset=offsetof(struct bpf_array, value).
-p = Path('kernel/bpf/arraymap.c')
-s = p.read_text()
-if 'static int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)' not in s:
-    anchor = re.search(r'(?m)^static void array_map_free\(struct bpf_map \*map\)\s*\{', s)
-    if not anchor:
-        raise SystemExit('kernel/bpf/arraymap.c: array mmap op insertion anchor not found')
-    extra = r'''static int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)
+\t\tdata = bpf_map_area_mmapable_alloc(array_size, numa_node);
+\t\tif (!data)
+\t\t\treturn ERR_PTR(-ENOMEM);
+\t\tarray = data + PAGE_ALIGN(sizeof(struct bpf_array))
+\t\t\t- offsetof(struct bpf_array, value);
+\t} else {
+\t\tarray = bpf_map_area_alloc(array_size, numa_node);
+\t}
+\tif (!array)
+\t\treturn ERR_PTR(-ENOMEM);''',
+    "vmalloc mmapable arrays",
+)
+
+# Replace only the plain array free routine and add mmap implementation before
+# array_map_ops. fd-array/percpu paths remain unchanged.
+sub_once(
+    "kernel/bpf/arraymap.c",
+    r'/\* Called when map->refcnt goes to zero, either from workqueue or from syscall \*/\nstatic void array_map_free\(struct bpf_map \*map\)\n\{.*?\n\}\n\n(?=const struct bpf_map_ops array_map_ops)',
+    '''static void *array_map_vmalloc_addr(struct bpf_array *array)
 {
-	struct bpf_array *array = container_of(map, struct bpf_array, map);
-	unsigned long size = vma->vm_end - vma->vm_start;
-	unsigned long data_size = PAGE_ALIGN((unsigned long)map->max_entries *
-					      array->elem_size);
-	unsigned long pgoff = PAGE_ALIGN(offsetof(struct bpf_array, value)) >> PAGE_SHIFT;
-
-	if (!(map->map_flags & BPF_F_MMAPABLE))
-		return -EINVAL;
-	if (size > data_size)
-		return -EINVAL;
-
-	return remap_vmalloc_range(vma, array, pgoff);
+\treturn (void *)round_down((unsigned long)array, PAGE_SIZE);
 }
 
-'''
-    s = s[:anchor.start()] + extra + s[anchor.start():]
-    p.write_text(s)
-    print('[bpf-mmap] array mmap op: applied')
-else:
-    print('[bpf-mmap] array mmap op: already present')
+/* Called when map->refcnt goes to zero, either from workqueue or from syscall */
+static void array_map_free(struct bpf_map *map)
+{
+\tstruct bpf_array *array = container_of(map, struct bpf_array, map);
 
-# Register mmap on both array ops tables if present.
-p = Path('kernel/bpf/arraymap.c')
-s = p.read_text()
-for ops_name in ('array_map_ops',):
-    m = re.search(rf'(const struct bpf_map_ops {ops_name}\s*=\s*\{{)(.*?)(\n\}};)', s, flags=re.S)
-    if not m:
-        continue
-    body = m.group(2)
-    if '.map_mmap' in body:
-        print(f'[bpf-mmap] {ops_name} mmap registration: already present')
-        continue
-    body += '\n\t.map_mmap = array_map_mmap,'
-    s = s[:m.start()] + m.group(1) + body + m.group(3) + s[m.end():]
-    print(f'[bpf-mmap] {ops_name} mmap registration: applied')
-p.write_text(s)
+\tsynchronize_rcu();
 
-print('[bpf-mmap] Android mmapable array backport complete')
+\tif (array->map.map_type == BPF_MAP_TYPE_PERCPU_ARRAY)
+\t\tbpf_array_free_percpu(array);
+
+\tif (array->map.map_flags & BPF_F_MMAPABLE)
+\t\tbpf_map_area_free(array_map_vmalloc_addr(array));
+\telse
+\t\tbpf_map_area_free(array);
+}
+
+static int array_map_mmap(struct bpf_map *map, struct vm_area_struct *vma)
+{
+\tstruct bpf_array *array = container_of(map, struct bpf_array, map);
+\tpgoff_t pgoff = PAGE_ALIGN(sizeof(*array)) >> PAGE_SHIFT;
+\tu64 data_size = PAGE_ALIGN((u64)array->map.max_entries * array->elem_size);
+\tu64 req_off = (u64)vma->vm_pgoff << PAGE_SHIFT;
+\tu64 req_size = vma->vm_end - vma->vm_start;
+
+\tif (!(map->map_flags & BPF_F_MMAPABLE))
+\t\treturn -EINVAL;
+\tif (req_off > data_size || req_size > data_size - req_off)
+\t\treturn -EINVAL;
+
+\treturn remap_vmalloc_range(vma, array_map_vmalloc_addr(array),
+\t\t\t\t   vma->vm_pgoff + pgoff);
+}
+
+''',
+    "array mmap/free support",
+)
+
+sub_once(
+    "kernel/bpf/arraymap.c",
+    r'(const struct bpf_map_ops array_map_ops = \{.*?\n\s*\.map_gen_lookup\s*=\s*array_map_gen_lookup,)(\n\};)',
+    r'\1\n\t.map_mmap = array_map_mmap,\2',
+    "array mmap op registration",
+)
+
 PY
+
+git diff --check -- include/uapi/linux/bpf.h include/linux/bpf.h \
+  kernel/bpf/syscall.c kernel/bpf/arraymap.c
+
+grep -q 'BPF_F_MMAPABLE' include/uapi/linux/bpf.h
+grep -q 'map_mmap = array_map_mmap' kernel/bpf/arraymap.c
+grep -q '\.mmap.*bpf_map_mmap' kernel/bpf/syscall.c
+
+echo '[bpf-mmap] Android 12 mmapable ARRAY backport ready'

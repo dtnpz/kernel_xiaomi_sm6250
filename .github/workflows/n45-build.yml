@@ -33,18 +33,30 @@ jobs:
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Build and package
-        shell: bash
         run: |
-          set -o pipefail
-          bash scripts/gx/build-n45.sh 2>&1 | tee n45-build.log
+          sed -i 's/flags=re.M)/flags=re.M | re.S)/' scripts/gx/apply-bpf-mmapable-array-v2.sh
+          bash scripts/gx/apply-netbpfload-bpf-debug.sh
+          python3 - <<'PY'
+          from pathlib import Path
 
-      - name: Upload flashable ZIP, metadata, and diagnostic log
-        if: always()
+          p = Path('kernel/sys.c')
+          s = p.read_text()
+          old = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
+          \t    !strncmp(current->comm, "netbpfload", 10) ||
+          \t    !strncmp(current->comm, "netd", 4)) {'''
+          new = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
+          \t    !strncmp(current->comm, "netd", 4)) {'''
+          if old not in s:
+              raise SystemExit('netbpfload uname spoof anchor not found')
+          p.write_text(s.replace(old, new, 1))
+          print('[netbpfload-kver] netbpfload sees real 4.14; bpfloader/netd keep 5.4 spoof')
+          PY
+          bash scripts/gx/build-n45.sh
+
+      - name: Upload flashable ZIP and build metadata
         uses: actions/upload-artifact@v4
         with:
           name: n45-${{ github.ref_name }}
-          path: |
-            artifacts/
-            n45-build.log
-          if-no-files-found: warn
+          path: artifacts/
+          if-no-files-found: error
           retention-days: 30

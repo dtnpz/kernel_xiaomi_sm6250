@@ -23,8 +23,8 @@ AK3_WORK="$ROOT_DIR/.gx-anykernel"
 
 export ARCH=arm64
 export SUBARCH=arm64
-export KBUILD_BUILD_HOST="${KBUILD_BUILD_HOST:-Github-CI}"
-export KBUILD_BUILD_USER="${KBUILD_BUILD_USER:-gx-n45}"
+export KBUILD_BUILD_HOST="${KBUILD_BUILD_HOST:-gxter-Kernel-CI}"
+export KBUILD_BUILD_USER="${KBUILD_BUILD_USER:-zared}"
 
 if [[ ! -x "$TOOLCHAIN_DIR/bin/clang" ]]; then
   echo "[N45] Fetching public Neutron Clang toolchain..."
@@ -57,6 +57,9 @@ printf '[N45] compiler: %s\n' "$KBUILD_COMPILER_STRING"
 printf '[N45] kernel: %s\n' "$(make -s kernelversion)"
 
 bash scripts/gx/prepare-variant.sh
+bash scripts/gx/set-gxter-release.sh
+bash scripts/gx/apply-bpf-mmapable-array-v2.sh
+bash scripts/gx/apply-bpf-failure-trace.sh
 
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
