@@ -52,8 +52,33 @@ jobs:
         run: |
           set -euo pipefail
           cd release
+
           for checksum in *.sha256; do
-            sha256sum -c "$checksum"
+            zip="${checksum%.sha256}"
+            expected="$(awk '{print $1}' "$checksum")"
+            actual="$(sha256sum "$zip" | awk '{print $1}')"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "SHA-256 mismatch: $zip" >&2
+              echo "expected=$expected" >&2
+              echo "actual=$actual" >&2
+              exit 1
+            fi
+            printf '%s  %s\n' "$expected" "$zip" > "$checksum"
+            echo "$zip: SHA-256 OK"
+          done
+
+          for checksum in *.md5; do
+            zip="${checksum%.md5}"
+            expected="$(awk '{print $1}' "$checksum")"
+            actual="$(md5sum "$zip" | awk '{print $1}')"
+            if [[ "$actual" != "$expected" ]]; then
+              echo "MD5 mismatch: $zip" >&2
+              echo "expected=$expected" >&2
+              echo "actual=$actual" >&2
+              exit 1
+            fi
+            printf '%s  %s\n' "$expected" "$zip" > "$checksum"
+            echo "$zip: MD5 OK"
           done
 
       - name: Create GitHub Release
@@ -77,7 +102,7 @@ jobs:
 
           ## Verification
 
-          All six variants were built successfully by GitHub Actions from their current verified branch heads, and the release workflow re-verifies each ZIP against its generated SHA-256 checksum before publishing.
+          All six variants were built successfully by GitHub Actions from their current verified branch heads. Before publishing, this release workflow re-verifies every ZIP against both its generated SHA-256 and MD5 values.
 
           **Important:** CI success proves compilation and packaging; it does not guarantee successful boot on every physical device/ROM combination. This release is CI-verified and should be treated as hardware-testing pending until it has been boot-tested on-device.
 
