@@ -39,11 +39,6 @@ KERNEL_PATCH="$KERNEL_PATCH_TMP"
 KSU_PATCH="$SUS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 KSU_PATCH_TMP=""
 
-# The stock SUSFS KSU patch targets the legacy upstream KernelSU layout.
-# backslashxx v3.3.0-2 has a newer setuid/syscall/downstream/supercall layout.
-# Pin the Aug-22 adapter whose source indexes match this generation, then adapt
-# only the exact API/layout mismatches against pinned SUSFS v1.5.5.  The helper
-# removes only superseded hunks/diffs and the caller dry-runs everything left.
 if [[ "$root_kind" == "xxksu" ]]; then
   XX_SUSFS_PATCH_COMMIT="f93ab9260f5bcf5c780c69763029722f44c98928"
   XX_SUSFS_PATCH_SHA256="8d037c8397ae7326936f976049c69579c10b5bf89ce8d50dea06bf7f566b4d47"
@@ -64,9 +59,8 @@ if [[ "$root_kind" == "xxksu" ]]; then
   grep -Fq 'kernel/supercall/supercall.c' "$KSU_PATCH_TMP"
 
   python3 scripts/gx/adapt-xxksu-susfs-v155.py "$KSU_DIR" "$KSU_PATCH_TMP"
-
   echo "[N45] xxKSU SUSFS adapter sha256 verified: $actual_patch_sha"
-  echo "[N45] adapted modern xxKSU bridge to pinned SUSFS v1.5.5"
+  echo "[N45] adapted modern xxKSU glue to pinned SUSFS v1.5.5"
   KSU_PATCH="$KSU_PATCH_TMP"
 fi
 trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"; [[ -z "${KERNEL_PATCH_TMP:-}" ]] || rm -f "$KERNEL_PATCH_TMP"' EXIT
@@ -76,8 +70,6 @@ if ! (cd "$KSU_DIR" && patch --batch --dry-run --forward -p1 < "$KSU_PATCH"); th
   exit 5
 fi
 
-# Keep the proven adapter intact; the wrapper changes only the brittle
-# newuname() boundary parser to an exact unique-body transform.
 python3 scripts/gx/run-adapt-susfs-414.py "$KERNEL_PATCH"
 python3 scripts/gx/adapt-susfs-414-readdir-compat.py "$KERNEL_PATCH"
 
@@ -89,19 +81,36 @@ fi
 (cd "$KSU_DIR" && patch --batch --forward -p1 < "$KSU_PATCH")
 patch --batch --forward -p1 < "$KERNEL_PATCH"
 
+# The modern xxKSU adapter advertises SUS_MAP, but pinned SUSFS v1.5.5 has no
+# such implementation. Remove only that exact menu block after the verified
+# adapter applies so the effective config remains truthful.
+if [[ "$root_kind" == "xxksu" ]]; then
+  python3 - "$KSU_DIR/kernel/Kconfig" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); s = p.read_text()
+start = s.find('config KSU_SUSFS_SUS_MAP\n')
+if start != -1:
+    end = s.find('\nendmenu\n', start)
+    if end == -1:
+        raise SystemExit('xxKSU Kconfig SUS_MAP block has no menu terminator')
+    block = s[start:end]
+    if 'hide some mmapped real file' not in block or 'depends on KSU_SUSFS' not in block:
+        raise SystemExit('refusing unexpected xxKSU SUS_MAP block removal')
+    p.write_text(s[:start] + s[end:])
+PY
+fi
+
 python3 <<'PY'
 from pathlib import Path
 import re
 p = Path('arch/arm64/configs/vendor/miatoll-perf_defconfig')
-s = p.read_text()
-key = 'KSU_SUSFS'
+s = p.read_text(); key = 'KSU_SUSFS'
 pat = re.compile(rf'^(?:CONFIG_{key}=.*|# CONFIG_{key} is not set)$', re.M)
 line = 'CONFIG_KSU_SUSFS=y'
-if pat.search(s):
-    s = pat.sub(line, s)
+if pat.search(s): s = pat.sub(line, s)
 else:
-    if not s.endswith('\n'):
-        s += '\n'
+    if not s.endswith('\n'): s += '\n'
     s += line + '\n'
 p.write_text(s)
 PY
@@ -109,7 +118,7 @@ PY
 grep -Fxq 'CONFIG_KSU_SUSFS=y' arch/arm64/configs/vendor/miatoll-perf_defconfig
 [[ -s fs/susfs.c ]]
 [[ -s include/linux/susfs.h ]]
-grep -Fq 'config KSU_SUSFS' "$KSU_DIR/kernel/Kconfig" 2>/dev/null || \
-  grep -Fq 'config KSU_SUSFS' "$KSU_DIR/Kconfig"
+grep -Fq 'config KSU_SUSFS' "$KSU_DIR/kernel/Kconfig" 2>/dev/null || grep -Fq 'config KSU_SUSFS' "$KSU_DIR/Kconfig"
+! grep -Fq 'config KSU_SUSFS_SUS_MAP' "$KSU_DIR/kernel/Kconfig"
 
 echo "[N45] SUSFS 4.14 layer applied cleanly"
