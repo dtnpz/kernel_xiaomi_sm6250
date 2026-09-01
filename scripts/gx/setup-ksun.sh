@@ -65,6 +65,17 @@ uid_call_anchor = '''SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t,
 uid_call = uid_call_anchor + '''#ifdef CONFIG_KSU\n\t(void)ksu_handle_setresuid(ruid, euid, suid);\n#endif\n'''
 one_replace('kernel/sys.c', uid_call_anchor, uid_call, 'setresuid hook')
 
+# KSUN legacy Kbuild explicitly validates the reboot supercall hook.  It is
+# also functionally required: ksud asks reboot() for the anonymous driver fd
+# before normal CAP_SYS_BOOT validation, so the hook must run before that gate.
+reboot_decl_anchor = '''static DEFINE_MUTEX(reboot_mutex);\n\n/*\n * Reboot system call: for obvious reasons only root may call it,\n'''
+reboot_decl = '''static DEFINE_MUTEX(reboot_mutex);\n\n#ifdef CONFIG_KSU\nextern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n#endif\n\n/*\n * Reboot system call: for obvious reasons only root may call it,\n'''
+one_replace('kernel/reboot.c', reboot_decl_anchor, reboot_decl, 'reboot supercall declaration')
+
+reboot_call_anchor = '''\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n\tchar buffer[256];\n\tint ret = 0;\n\n\t/* We only trust the superuser with rebooting the system. */\n'''
+reboot_call = '''\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n\tchar buffer[256];\n\tint ret = 0;\n\n#ifdef CONFIG_KSU\n\t(void)ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n#endif\n\n\t/* We only trust the superuser with rebooting the system. */\n'''
+one_replace('kernel/reboot.c', reboot_call_anchor, reboot_call, 'reboot supercall hook')
+
 p = Path('arch/arm64/configs/vendor/miatoll-perf_defconfig')
 s = p.read_text()
 settings = {'KSU': 'y', 'KSU_MANUAL_HOOK': 'y', 'KSU_KPROBES_HOOK': 'n'}
@@ -85,5 +96,6 @@ grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
 grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
 grep -Fq 'ksu_handle_stat(&dfd, &filename, &flags);' fs/stat.c
 grep -Fq 'ksu_handle_setresuid(ruid, euid, suid);' kernel/sys.c
+grep -Fq 'ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);' kernel/reboot.c
 
 echo "[N45] KernelSU-Next legacy/manual integration ready"
