@@ -1,0 +1,105 @@
+name: Publish N45 release
+
+on:
+  push:
+    branches:
+      - miatoll-nexus45-bp-ksun
+    paths:
+      - .github/workflows/publish-n45-release.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download verified build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p downloaded release
+          for run_id in \
+            33437113045 \
+            33492886056 \
+            33492917003 \
+            33468438634 \
+            33493465133 \
+            33505468845
+          do
+            gh run download "$run_id" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir "downloaded/$run_id"
+          done
+
+          find downloaded -type f \( \
+            -name '*.zip' -o \
+            -name '*.sha256' -o \
+            -name '*.md5' -o \
+            -name '*.build-info.txt' \
+          \) -exec cp -v {} release/ \;
+
+          zip_count="$(find release -maxdepth 1 -type f -name '*.zip' | wc -l)"
+          if [[ "$zip_count" -ne 6 ]]; then
+            echo "Expected 6 kernel ZIPs, found $zip_count" >&2
+            find release -maxdepth 1 -type f -printf '%f\n' | sort >&2
+            exit 1
+          fi
+
+      - name: Verify release ZIP checksums
+        run: |
+          set -euo pipefail
+          cd release
+          for checksum in *.sha256; do
+            sha256sum -c "$checksum"
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          # N45 4.14.356 — Miatoll r1
+
+          Six N45 kernel variants for Xiaomi Miatoll-family devices.
+
+          ## Included variants
+
+          - NONKSU-NBP
+          - XXKSU-SUSFS-NBP
+          - KSUN330-SUSFS-NBP
+          - NONKSU-BP
+          - XXKSU-SUSFS-BP
+          - KSUN330-SUSFS-BP
+
+          ## Verification
+
+          All six variants were built successfully by GitHub Actions from their current verified branch heads, and the release workflow re-verifies each ZIP against its generated SHA-256 checksum before publishing.
+
+          **Important:** CI success proves compilation and packaging; it does not guarantee successful boot on every physical device/ROM combination. This release is CI-verified and should be treated as hardware-testing pending until it has been boot-tested on-device.
+
+          ## Flashing / recovery
+
+          The AnyKernel3 package targets the Miatoll family and flashes kernel boot content plus DTBO. Back up your current boot and dtbo partitions before the first flash, keep a known-good kernel/boot image available, and collect `/sys/fs/pstore` plus `dmesg`/`logcat` if a boot or runtime problem occurs.
+
+          ## Verified CI runs
+
+          - NONKSU-NBP: 33437113045
+          - XXKSU-SUSFS-NBP: 33492886056
+          - KSUN330-SUSFS-NBP: 33492917003
+          - NONKSU-BP: 33468438634
+          - XXKSU-SUSFS-BP: 33493465133
+          - KSUN330-SUSFS-BP: 33505468845
+
+          The release also includes per-variant checksum and build-info files for verification.
+          EOF
+
+          gh release create "n45-4.14.356-miatoll-r1" \
+            release/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "ee0df5823a5ff08783b15b90d073871019f4e2e4" \
+            --title "N45 4.14.356 — Miatoll r1" \
+            --notes-file release-notes.md
