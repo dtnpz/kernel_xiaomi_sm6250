@@ -2,19 +2,17 @@ name: Release N45 4.14.356 MIUI
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Release tag
-        required: true
-        default: n45-4.14.356-r1
-      prerelease:
-        description: Mark as prerelease until device validation is complete
-        required: true
-        type: boolean
-        default: true
+  push:
+    branches:
+      - miatoll-nexus45-base
+    paths:
+      - .gx-release-trigger
 
 permissions:
   contents: write
+
+env:
+  N45_RELEASE_TAG: n45-4.14.356-r1
 
 jobs:
   build:
@@ -75,16 +73,26 @@ jobs:
       - name: Build release candidate
         run: bash scripts/gx/build-n45.sh
 
-      - name: Verify expected artifact
+      - name: Verify expected artifact set
         env:
+          EXPECTED_VARIANT: ${{ matrix.variant }}
           EXPECTED_ZIP: ${{ matrix.zip }}
         run: |
           set -euo pipefail
           test -s "artifacts/$EXPECTED_ZIP"
           test -s "artifacts/$EXPECTED_ZIP.sha256"
           test -s "artifacts/$EXPECTED_ZIP.md5"
+          test -s "artifacts/$EXPECTED_VARIANT.config"
+          test -s "artifacts/$EXPECTED_VARIANT.build-info.txt"
           sha256sum -c "artifacts/$EXPECTED_ZIP.sha256"
           md5sum -c "artifacts/$EXPECTED_ZIP.md5"
+
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          unzip -q "artifacts/$EXPECTED_ZIP" -d "$tmp"
+          test -s "$tmp/Image.gz"
+          test -s "$tmp/dtb"
+          test -s "$tmp/dtbo.img"
 
       - name: Upload matrix artifact
         uses: actions/upload-artifact@v4
@@ -135,45 +143,54 @@ jobs:
           actual_count="$(find dist -maxdepth 1 -type f -name 'N45-4.14.356-MIUI-*.zip' | wc -l)"
           test "$actual_count" -eq 6
 
-          cat dist/*.sha256 | sort > dist/SHA256SUMS
-          cat dist/*.md5 | sort > dist/MD5SUMS
+          cat dist/N45-4.14.356-MIUI-*.zip.sha256 | sort > dist/SHA256SUMS
+          cat dist/N45-4.14.356-MIUI-*.zip.md5 | sort > dist/MD5SUMS
+          test "$(wc -l < dist/SHA256SUMS)" -eq 6
+          test "$(wc -l < dist/MD5SUMS)" -eq 6
+
+          {
+            echo 'N45 4.14.356 MIUI build/source manifest'
+            echo '========================================'
+            echo
+            for info in $(find dist -maxdepth 1 -type f -name '*.build-info.txt' | sort); do
+              cat "$info"
+              echo
+            done
+            echo 'Source pins:'
+            cat gx-sources.lock
+          } > dist/BUILD-SOURCE.txt
+
+          test "$(grep -c '^variant=' dist/BUILD-SOURCE.txt)" -eq 6
+          test "$(grep -c '^source_commit=' dist/BUILD-SOURCE.txt)" -eq 6
 
       - name: Write release notes
         run: |
           cat > dist/RELEASE_NOTES.md <<'EOF'
           # N45 4.14.356 MIUI / HyperOS Miatoll
 
-          First release-candidate set built from the shared OpenELA 4.14.356 Miatoll base.
+          Six flashable AnyKernel variants built from the shared OpenELA 4.14.356 Miatoll base.
 
           Included variants:
           - NONKSU NBP
-          - backslashxx KernelSU + SUSFS NBP
-          - KernelSU-Next + SUSFS NBP
+          - backslashxx KernelSU v3.3.0-2 + SUSFS NBP
+          - KernelSU-Next v3.3.0 legacy/manual-hook + SUSFS NBP
           - NONKSU BP
-          - backslashxx KernelSU + SUSFS BP
-          - KernelSU-Next + SUSFS BP
+          - backslashxx KernelSU v3.3.0-2 + SUSFS BP
+          - KernelSU-Next v3.3.0 legacy/manual-hook + SUSFS BP
 
-          NBP keeps the tree's required Android BPF support without the selected extra BP layer. BP adds only the reviewed targeted BPF backport layer shared by all three BP variants.
+          NBP and BP are distinct builds. BP applies the reviewed newer-kernel BPF backport layer; root implementations remain separate and no image contains both KernelSU implementations.
 
-          Root implementations are separate builds; no image contains both KernelSU implementations.
+          Device target: Xiaomi Miatoll/Joyeuse family with MIUI compatibility preserved. MGLRU is enabled and default vm.swappiness is 60.
 
-          Device target: Xiaomi Miatoll family, with Joyeuse/Redmi Note 9 Pro as the primary MIUI 14 Android 12 validation target.
-
-          Back up the current boot image before flashing. A successful CI build proves compilation and packaging, not device-level stability. Keep this release marked prerelease until all hardware and reboot tests pass on-device.
+          SHA256SUMS, MD5SUMS, and BUILD-SOURCE.txt are published alongside the six ZIP files for verification and provenance.
           EOF
 
       - name: Create release and upload verified files
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          TAG: ${{ env.N45_RELEASE_TAG }}
         run: |
           set -euo pipefail
-
-          extra=()
-          if [[ "$PRERELEASE" == "true" ]]; then
-            extra+=(--prerelease)
-          fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists; refusing to overwrite it." >&2
@@ -184,9 +201,9 @@ jobs:
             --target miatoll-nexus45-base \
             --title "N45 4.14.356 MIUI r1" \
             --notes-file dist/RELEASE_NOTES.md \
-            "${extra[@]}" \
             dist/N45-4.14.356-MIUI-*.zip \
             dist/N45-4.14.356-MIUI-*.zip.sha256 \
             dist/N45-4.14.356-MIUI-*.zip.md5 \
             dist/SHA256SUMS \
-            dist/MD5SUMS
+            dist/MD5SUMS \
+            dist/BUILD-SOURCE.txt
