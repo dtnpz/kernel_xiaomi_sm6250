@@ -71,8 +71,6 @@ import sys
 umount_path = Path(sys.argv[1])
 patch_path = Path(sys.argv[2])
 
-# Exact source-side adaptation for the sole failed hunk observed against
-# backslashxx v3.3.0-2. Refuse to continue if upstream source changes.
 s = umount_path.read_text()
 old = "static bool ksu_kernel_umount_enabled __read_mostly = true;"
 new = """#ifndef CONFIG_KSU_SUSFS
@@ -85,9 +83,6 @@ if s.count(old) != 1:
 s = s.replace(old, new, 1)
 umount_path.write_text(s)
 
-# Remove ONLY the first hunk for kernel/feature/kernel_umount.c; it is now
-# represented by the exact manual transform above. Leave all later hunks and
-# every other file untouched for patch --dry-run validation.
 lines = patch_path.read_text().splitlines(keepends=True)
 diff_marker = "diff --git a/kernel/feature/kernel_umount.c b/kernel/feature/kernel_umount.c"
 try:
@@ -129,17 +124,14 @@ PY
 fi
 trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"; [[ -z "${KERNEL_PATCH_TMP:-}" ]] || rm -f "$KERNEL_PATCH_TMP"' EXIT
 
-# Root-side patch must be clean before we touch the vendor kernel patch.
 if ! (cd "$KSU_DIR" && patch --batch --dry-run --forward -p1 < "$KSU_PATCH"); then
   echo "[N45] SUSFS KernelSU patch does not apply cleanly to $root_kind; adaptation required." >&2
   exit 5
 fi
 
-# Adapt only the generic 4.14 hunks proven by CI to mismatch this Miatoll tree.
-# Both helpers exact-match source anchors and remove only superseded hunks from
-# this temporary patch. Every other SUSFS hunk remains upstream and must still
-# pass patch --dry-run below.
-python3 scripts/gx/adapt-susfs-414.py "$KERNEL_PATCH"
+# Keep the proven adapter intact; the wrapper changes only the brittle
+# newuname() boundary parser to an exact unique-body transform.
+python3 scripts/gx/run-adapt-susfs-414.py "$KERNEL_PATCH"
 python3 scripts/gx/adapt-susfs-414-readdir-compat.py "$KERNEL_PATCH"
 
 if ! patch --batch --dry-run --forward -p1 < "$KERNEL_PATCH"; then
