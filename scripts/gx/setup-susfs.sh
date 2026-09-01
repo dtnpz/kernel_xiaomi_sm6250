@@ -40,12 +40,10 @@ KSU_PATCH="$SUS_DIR/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
 KSU_PATCH_TMP=""
 
 # The stock SUSFS KSU patch targets the legacy upstream KernelSU layout.
-# backslashxx v3.3.0-2 has a newer setuid/syscall/downstream layout. Pin the
-# Aug-22 adapter whose source indexes match this generation and require a full
-# dry-run before applying it. Only one source-context mismatch is adapted below:
-# the first kernel_umount.c hunk expects a now-removed setuid block above the
-# variable it changes. We perform that exact transformation ourselves, remove
-# only that one hunk from the temporary patch, then dry-run every remaining hunk.
+# backslashxx v3.3.0-2 has a newer setuid/syscall/downstream/supercall layout.
+# Pin the Aug-22 adapter whose source indexes match this generation, then adapt
+# only the exact API/layout mismatches against pinned SUSFS v1.5.5.  The helper
+# removes only superseded hunks/diffs and the caller dry-runs everything left.
 if [[ "$root_kind" == "xxksu" ]]; then
   XX_SUSFS_PATCH_COMMIT="f93ab9260f5bcf5c780c69763029722f44c98928"
   XX_SUSFS_PATCH_SHA256="8d037c8397ae7326936f976049c69579c10b5bf89ce8d50dea06bf7f566b4d47"
@@ -63,63 +61,12 @@ if [[ "$root_kind" == "xxksu" ]]; then
   grep -Fq 'Subject: [PATCH] susfs' "$KSU_PATCH_TMP"
   grep -Fq 'kernel/hook/setuid_hook.c' "$KSU_PATCH_TMP"
   grep -Fq 'kernel/downstream/ksu_hostsredirect.h' "$KSU_PATCH_TMP"
+  grep -Fq 'kernel/supercall/supercall.c' "$KSU_PATCH_TMP"
 
-  python3 - "$KSU_DIR/kernel/feature/kernel_umount.c" "$KSU_PATCH_TMP" <<'PY'
-from pathlib import Path
-import sys
-
-umount_path = Path(sys.argv[1])
-patch_path = Path(sys.argv[2])
-
-s = umount_path.read_text()
-old = "static bool ksu_kernel_umount_enabled __read_mostly = true;"
-new = """#ifndef CONFIG_KSU_SUSFS
-static bool ksu_kernel_umount_enabled __read_mostly = true;
-#else
-bool ksu_kernel_umount_enabled __read_mostly = true;
-#endif // #ifndef CONFIG_KSU_SUSFS"""
-if s.count(old) != 1:
-    raise SystemExit(f"expected exactly one xxKSU kernel_umount marker, found {s.count(old)}")
-s = s.replace(old, new, 1)
-umount_path.write_text(s)
-
-lines = patch_path.read_text().splitlines(keepends=True)
-diff_marker = "diff --git a/kernel/feature/kernel_umount.c b/kernel/feature/kernel_umount.c"
-try:
-    d = next(i for i, line in enumerate(lines) if line.rstrip("\r\n") == diff_marker)
-except StopIteration:
-    raise SystemExit("xxKSU SUSFS patch missing kernel_umount diff")
-
-h1 = None
-for i in range(d + 1, len(lines)):
-    if lines[i].startswith("diff --git "):
-        break
-    if lines[i].startswith("@@ "):
-        h1 = i
-        break
-if h1 is None:
-    raise SystemExit("xxKSU SUSFS patch missing first kernel_umount hunk")
-
-h2 = None
-for i in range(h1 + 1, len(lines)):
-    if lines[i].startswith("@@ ") or lines[i].startswith("diff --git "):
-        h2 = i
-        break
-if h2 is None or not lines[h2].startswith("@@ "):
-    raise SystemExit("xxKSU SUSFS kernel_umount patch did not contain the expected second hunk")
-
-removed = "".join(lines[h1:h2])
-if "ksu_kernel_umount_enabled" not in removed:
-    raise SystemExit("refusing to remove unexpected kernel_umount hunk")
-del lines[h1:h2]
-text = "".join(lines)
-if not text.endswith("\n"):
-    text += "\n"
-patch_path.write_text(text)
-PY
+  python3 scripts/gx/adapt-xxksu-susfs-v155.py "$KSU_DIR" "$KSU_PATCH_TMP"
 
   echo "[N45] xxKSU SUSFS adapter sha256 verified: $actual_patch_sha"
-  echo "[N45] adapted only kernel_umount first hunk for pinned xxKSU v3.3.0-2"
+  echo "[N45] adapted modern xxKSU bridge to pinned SUSFS v1.5.5"
   KSU_PATCH="$KSU_PATCH_TMP"
 fi
 trap '[[ -z "${KSU_PATCH_TMP:-}" ]] || rm -f "$KSU_PATCH_TMP"; [[ -z "${KERNEL_PATCH_TMP:-}" ]] || rm -f "$KERNEL_PATCH_TMP"' EXIT
