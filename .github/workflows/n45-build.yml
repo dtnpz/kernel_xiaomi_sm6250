@@ -9,6 +9,10 @@ on:
       - miatoll-nexus45-bp
       - miatoll-nexus45-bp-xxksu
       - miatoll-nexus45-bp-ksun
+      - miatoll-nexus45-nbp-xxksu-nosusfs
+      - miatoll-nexus45-nbp-ksun-nosusfs
+      - miatoll-nexus45-bp-xxksu-nosusfs
+      - miatoll-nexus45-bp-ksun-nosusfs
   workflow_dispatch:
 
 permissions:
