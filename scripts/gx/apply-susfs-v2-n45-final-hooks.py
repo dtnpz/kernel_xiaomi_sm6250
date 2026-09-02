@@ -109,12 +109,29 @@ s = replace_once(
     extern + "#if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)\n",
     "newfstatat manual-hook declaration",
 )
-s = replace_once(
-    s,
-    "\tstruct kstat stat;\n\tint error;\n\n\terror = vfs_fstatat(dfd, filename, &stat, flag);\n",
-    "\tstruct kstat stat;\n\tint error;\n\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_stat(&dfd, &filename, &flag);\n#endif\n\terror = vfs_fstatat(dfd, filename, &stat, flag);\n",
-    "newfstatat manual hook",
-)
+# Several stat-family wrappers share the same vfs_fstatat() prologue on this
+# vendor tree. Scope the edit to the actual newfstatat syscall signature so we
+# never hook old/compat wrappers by accident.
+newfstatat_old = '''SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+		struct stat __user *, statbuf, int, flag)
+{
+	struct kstat stat;
+	int error;
+
+	error = vfs_fstatat(dfd, filename, &stat, flag);
+'''
+newfstatat_new = '''SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+		struct stat __user *, statbuf, int, flag)
+{
+	struct kstat stat;
+	int error;
+
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	ksu_handle_stat(&dfd, &filename, &flag);
+#endif
+	error = vfs_fstatat(dfd, filename, &stat, flag);
+'''
+s = replace_once(s, newfstatat_old, newfstatat_new, "newfstatat syscall manual hook")
 write(path, s)
 
 # ---------------------------------------------------------------------------
