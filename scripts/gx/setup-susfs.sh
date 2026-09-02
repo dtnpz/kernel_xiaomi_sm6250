@@ -25,26 +25,29 @@ echo "[N45] applying non-GKI Linux 4.14 SUSFS ${SUSFS_414_BACKPORT_VERSION} back
 PATCH_DIR="$(mktemp -d)"
 trap 'rm -rf "$PATCH_DIR"' EXIT
 
-# Required compatibility backports for the 4.14 SUSFS v2 line, followed by
-# only the SUSFS-specific evolution through the pinned v2.2.0 commit.
-# These SHAs come from sidex15/android_kernel_lge_sm8150 (Linux 4.14.355).
+# Compatibility prerequisites are ordered by ancestry, oldest dependency first.
+# The requirement list in the SUSFS v2.0.0 backport commit is written newest
+# first, so applying it literally causes artificial conflicts on 4.14 trees.
+# After the prerequisites, apply the SUSFS-specific evolution through v2.2.0.
 SUSFS_414_PATCH_SERIES=(
-  d406904bb175cb9791b5aed4404df3268859d91b
-  9ba899398576d329288b023566d3a731470ad13a
-  e784224542fab4b3888d9103a1f678015221a7d1
-  ed8fd10d97a50ec424ae38a40351b5de060f9838
   4ba6dccf73a620e565803e5995d5748ecfbb56a2
-  0a8cbf3725edbacc5f1ead33eeae7e4d78823b5a
-  37ae2444584654f6785f2cc49181f05af788c9b2
-  49a5115e11350ee68f6a5fbd56b3e817bf9e5aac
-  6f94042bed51121f8f28a5e572cda20c21fed2e1
-  bbd5aec12b32097a71dc6a0097194a18f3ee9a17
-  849ca8ce954d9dbb082dcf83c98af861e98e5635
-  6071a482c8e603be25895cc2cac5f0eab61c4051
-  03fd2fbe9c40da8128cec5c69ef54755c0f38c6c
-  95f8be4c8a86a491a1c2ac9bfe470aef9e1baa8f
-  27956d255e3b012372951dd6131e07c106d2daae
+  ed8fd10d97a50ec424ae38a40351b5de060f9838
+  e784224542fab4b3888d9103a1f678015221a7d1
+  9ba899398576d329288b023566d3a731470ad13a
+  d406904bb175cb9791b5aed4404df3268859d91b
+
   7f2847d02cdc4491b5ee6d4a0043854cbd6c7a1a
+  27956d255e3b012372951dd6131e07c106d2daae
+  95f8be4c8a86a491a1c2ac9bfe470aef9e1baa8f
+  03fd2fbe9c40da8128cec5c69ef54755c0f38c6c
+  6071a482c8e603be25895cc2cac5f0eab61c4051
+  849ca8ce954d9dbb082dcf83c98af861e98e5635
+  bbd5aec12b32097a71dc6a0097194a18f3ee9a17
+  6f94042bed51121f8f28a5e572cda20c21fed2e1
+  49a5115e11350ee68f6a5fbd56b3e817bf9e5aac
+  37ae2444584654f6785f2cc49181f05af788c9b2
+  0a8cbf3725edbacc5f1ead33eeae7e4d78823b5a
+
   bb2f164bc19795ef704f17c82f04885d44421418
   1f4ef7d7978c4a74812c2445ebfac02fd451e068
   65fb7abff9ce217729b0c4cddf76e76522b636b6
@@ -90,17 +93,19 @@ apply_ref_patch() {
     exit 6
   }
 
-  # OpenELA or an earlier integration may already contain a prerequisite.
-  if patch --batch --dry-run --reverse -p1 < "$patch_file" >/dev/null 2>&1; then
+  # Use git-apply checks rather than GNU patch's auto reverse-detection.  The
+  # latter can report a forward patch as already present on sufficiently close
+  # vendor trees, which masked missing prerequisites in CI #144.
+  if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     echo "[N45][SUSFS-v2] already present: $sha"
     return 0
   fi
 
-  if ! patch --batch --dry-run --forward -p1 < "$patch_file"; then
+  if ! git apply --check "$patch_file"; then
     echo "[N45][SUSFS-v2] patch $sha does not apply to the N45 tree; adapt this exact commit next." >&2
     exit 7
   fi
-  patch --batch --forward -p1 < "$patch_file"
+  git apply "$patch_file"
 }
 
 for sha in "${SUSFS_414_PATCH_SERIES[@]}"; do
