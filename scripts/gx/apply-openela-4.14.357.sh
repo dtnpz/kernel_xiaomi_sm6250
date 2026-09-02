@@ -18,7 +18,7 @@ case "$current" in
 esac
 
 # The 4.14.357 eLTS release is six commits ahead of the exact 4.14.356
-# OpenELA point N45 already carries.  Do not fake this by only changing
+# OpenELA point N45 already carries. Do not fake this by only changing
 # SUBLEVEL: apply the five fixes and then the official version bump.
 ELTS_REPO="FlopKernel-Series/flop_trinket-mi_kernel"
 ELTS_SERIES=(
@@ -33,9 +33,11 @@ ELTS_SERIES=(
 PATCH_DIR="$(mktemp -d)"
 trap 'rm -rf "$PATCH_DIR"' EXIT
 
-for sha in "${ELTS_SERIES[@]}"; do
-  patch_file="$PATCH_DIR/$sha.patch"
-  url="https://github.com/$ELTS_REPO/commit/$sha.patch"
+apply_elts_patch() {
+  local sha="$1"
+  local patch_file="$PATCH_DIR/$sha.patch"
+  local url="https://github.com/$ELTS_REPO/commit/$sha.patch"
+
   echo "[N45][eLTS] $sha"
   curl -fsSL --retry 4 --retry-delay 2 "$url" -o "$patch_file"
   grep -Fqi "$sha" "$patch_file" || {
@@ -45,19 +47,39 @@ for sha in "${ELTS_SERIES[@]}"; do
 
   if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     echo "[N45][eLTS] already present: $sha"
-    continue
+    return 0
   fi
 
-  if ! git apply --check "$patch_file"; then
-    echo "[N45][eLTS] 4.14.357 delta conflict at $sha" >&2
+  if git apply --check "$patch_file" >/dev/null 2>&1; then
+    git apply "$patch_file"
+    return 0
+  fi
+
+  # Qualcomm adds vendor fields/context around otherwise identical upstream
+  # structures (for example ll_node immediately before skb->sk).  Permit
+  # shifted context only after a complete dry-run proves every hunk applies.
+  # Never allow partial application or .rej files.
+  echo "[N45][eLTS] exact context differs; trying checked Qualcomm-context apply"
+  if ! patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch_file" >"$PATCH_DIR/$sha.log" 2>&1; then
+    cat "$PATCH_DIR/$sha.log" >&2 || true
+    echo "[N45][eLTS] semantic adaptation required at $sha" >&2
     exit 4
   fi
-  git apply "$patch_file"
+  patch --batch --forward --fuzz=3 -p1 < "$patch_file"
+  if find . -name '*.rej' -print -quit | grep -q .; then
+    echo "[N45][eLTS] rejected hunk detected after $sha" >&2
+    find . -name '*.rej' -print >&2
+    exit 5
+  fi
+}
+
+for sha in "${ELTS_SERIES[@]}"; do
+  apply_elts_patch "$sha"
 done
 
 [[ "$(make -s kernelversion)" == "4.14.357-openela" ]] || {
   echo "[N45][eLTS] version did not advance to 4.14.357-openela" >&2
-  exit 5
+  exit 6
 }
 
 echo "[N45][eLTS] real OpenELA 4.14.357 delta applied"
