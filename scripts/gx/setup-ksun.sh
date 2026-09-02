@@ -13,14 +13,15 @@ KSUN_DIR="$ROOT_DIR/KernelSU-Next"
 
 rm -rf "$KSUN_DIR" drivers/kernelsu
 
+# N45 4.14 uses the pinned legacy/manual-hook tree for both KSUN lanes.
+# SUSFS remains a Kconfig/build-time choice; using one manual-hook-capable core
+# prevents the no-SUSFS variant from falling back to kprobes/tracepoints.
+KSU_REPO="$KSUN_SUSFS_REPO"
+KSU_COMMIT="$KSUN_SUSFS_COMMIT"
 if [[ "${GX_SUSFS:-0}" == "1" ]]; then
-  KSU_REPO="$KSUN_SUSFS_REPO"
-  KSU_COMMIT="$KSUN_SUSFS_COMMIT"
   echo "[GXT] integrating KernelSU-Next SUSFS-v2 manual-hook tree @ $KSU_COMMIT"
 else
-  KSU_REPO="$KSUN_REPO"
-  KSU_COMMIT="$KSUN_RELEASE_COMMIT"
-  echo "[GXT] integrating KernelSU-Next ${KSUN_RELEASE_TAG} @ $KSU_COMMIT"
+  echo "[GXT] integrating KernelSU-Next manual-hook core (SUSFS disabled) @ $KSU_COMMIT"
 fi
 
 git clone -q "$KSU_REPO" "$KSUN_DIR"
@@ -57,32 +58,27 @@ def set_cfg(key, value):
             s += '\n'
         s += line + '\n'
 
-for key in ('KSU', 'EXT4_FS'):
-    set_cfg(key, 'y')
-
-if susfs:
-    # SUSFS v2 on 4.14 is a non-GKI/manual-hook integration.
-    set_cfg('KSU_MANUAL_HOOK', 'y')
-    set_cfg('KSU_KPROBES_HOOK', 'n')
-else:
-    # Official v3.3.0 non-SUSFS build keeps its native kprobe engine.
-    set_cfg('KPROBES', 'y')
-    s = re.sub(r'^(?:CONFIG_KSU_MANUAL_HOOK=.*|# CONFIG_KSU_MANUAL_HOOK is not set)\n?', '', s, flags=re.M)
-    s = re.sub(r'^(?:CONFIG_KSU_KPROBES_HOOK=.*|# CONFIG_KSU_KPROBES_HOOK is not set)\n?', '', s, flags=re.M)
+set_cfg('KSU', 'y')
+set_cfg('EXT4_FS', 'y')
+set_cfg('KSU_MANUAL_HOOK', 'y')
+set_cfg('KSU_KPROBES_HOOK', 'n')
+# Do not force generic Linux KPROBES/KRETPROBES. Preserve the Miatoll baseline.
+if not susfs:
+    # The pinned manual-hook tree defaults SUSFS on, so explicitly turn it off
+    # for the no-SUSFS release variant.
+    set_cfg('KSU_SUSFS', 'n')
 
 p.write_text(s)
 PY
 
 grep -Fxq 'CONFIG_KSU=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_EXT4_FS=y' "$DEFCONFIG"
-if [[ "${GX_SUSFS:-0}" == "1" ]]; then
-  grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
-  grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
-  test -f "$KSUN_DIR/kernel/supercall/dispatch.c"
-  grep -Fq 'config KSU_SUSFS' "$KSUN_DIR/kernel/Kconfig"
-else
-  grep -Fxq 'CONFIG_KPROBES=y' "$DEFCONFIG"
-  test -f "$KSUN_DIR/kernel/feature/selinux_hide.c"
+grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
+grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
+test -f "$KSUN_DIR/kernel/supercall/dispatch.c"
+grep -Fq 'config KSU_SUSFS' "$KSUN_DIR/kernel/Kconfig"
+if [[ "${GX_SUSFS:-0}" == "0" ]]; then
+  grep -Fxq '# CONFIG_KSU_SUSFS is not set' "$DEFCONFIG"
 fi
 
-echo "[GXT] KernelSU-Next integration ready"
+echo "[GXT] KernelSU-Next manual-hook integration ready"
