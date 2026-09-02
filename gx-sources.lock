@@ -1,5 +1,5 @@
 # GX Miatoll Nexus-4.5-style kernel source pins
-# Generated/verified 2026-09-01.
+# Generated/verified 2026-09-02.
 # Do not silently replace these with floating branches in release builds.
 
 VELVET_REPO=https://github.com/ProjectVelvet/kernel_xiaomi_sm6250.git
@@ -16,17 +16,19 @@ XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
 XXKSU_TAG=v3.3.0-2
 XXKSU_COMMIT=1d1cc5cf1981dbf8ce3258ba16e1a6b16d9651f2
 
-# KernelSU-Next manager/release target.
+# KernelSU-Next manager/release target for non-SUSFS builds.
 KSUN_REPO=https://github.com/KernelSU-Next/KernelSU-Next.git
 KSUN_RELEASE_TAG=v3.3.0
 KSUN_RELEASE_COMMIT=3b18216f71df189ab3d1b1ce0bdb21be1268e771
 
-# 4.14 integration uses the legacy/manual-hook line rather than modern
-# 5.10+ kprobe-oriented integration. This is intentionally pinned separately
-# from the manager release tag.
-KSUN_LEGACY_COMMIT=a54e4fa46c6cc25bcaa055cf14d790194beffed8
+# Non-GKI/manual-hook KernelSU-Next tree carrying the SUSFS v2 ABI.
+# Pin the exact commit; do not float legacy-susfs-v2 in release builds.
+KSUN_SUSFS_REPO=https://github.com/sidex15/KernelSU-Next.git
+KSUN_SUSFS_BRANCH=legacy-susfs-v2
+KSUN_SUSFS_COMMIT=f110cddc07e27b21ad77c6c31261660efb25dce4
 
-# Official SUSFS 4.14 reference line.
-SUSFS_REPO=https://github.com/Star-Seven/susfs4ksu.git
-SUSFS_BRANCH=kernel-4.14
-SUSFS_COMMIT=d18028f2a8f3ba16a907bff0edc16376cf38e2bf
+# Linux 4.14 SUSFS v2.2.0 backport reference.  setup-susfs.sh applies only
+# the explicitly pinned SUSFS/prerequisite commits from this repository.
+SUSFS_414_BACKPORT_REPO=https://github.com/sidex15/android_kernel_lge_sm8150.git
+SUSFS_414_BACKPORT_VERSION=v2.2.0
+SUSFS_414_BACKPORT_HEAD=0a5b29d63113137f481d2636af5e943631b76687

@@ -46,20 +46,14 @@ case "$GX_ROOT" in
   ksun) bash scripts/gx/setup-ksun.sh ;;
 esac
 
-# Modern rooted cores use their own hooks; remove Velvet's stale callback ABI
-# before either plain or SUSFS build paths.
+# Remove stale Velvet callbacks before either the plain modern KSU path or the
+# SUSFS-v2 manual-hook patch adds its own current hooks.
 if [[ "$GX_ROOT" != none ]]; then
   python3 scripts/gx/strip-modern-ksu-legacy-vendor-hooks.py
 fi
 
 if [[ "$GX_SUSFS" == 1 ]]; then
   bash scripts/gx/setup-susfs.sh "$GX_ROOT"
-  case "$GX_ROOT" in
-    xxksu) KSU_DIR="$ROOT_DIR/KernelSU" ;;
-    ksun) KSU_DIR="$ROOT_DIR/KernelSU-Next" ;;
-    *) echo "SUSFS ABI bridge requires a rooted variant." >&2; exit 3 ;;
-  esac
-  python3 scripts/gx/add-susfs-v155-bridges.py "$KSU_DIR" "$GX_ROOT"
 fi
 
 echo "[GXT] variant preparation complete: $GX_VARIANT"
