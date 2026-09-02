@@ -60,8 +60,29 @@ jobs:
             unzip -tqq "$zip"
             [[ -s "$zip.sha256" ]] || { echo "Missing $zip.sha256" >&2; exit 12; }
             [[ -s "$zip.md5" ]] || { echo "Missing $zip.md5" >&2; exit 13; }
-            (cd "$(dirname "$zip")" && sha256sum -c "$(basename "$zip").sha256")
-            (cd "$(dirname "$zip")" && md5sum -c "$(basename "$zip").md5")
+
+            expected_sha256="$(awk 'NR==1 {print $1}' "$zip.sha256")"
+            actual_sha256="$(sha256sum "$zip" | awk '{print $1}')"
+            [[ "$expected_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || {
+              echo "Invalid SHA256 sidecar for $zip" >&2
+              exit 16
+            }
+            [[ "${expected_sha256,,}" == "${actual_sha256,,}" ]] || {
+              echo "SHA256 mismatch for $zip" >&2
+              exit 17
+            }
+
+            expected_md5="$(awk 'NR==1 {print $1}' "$zip.md5")"
+            actual_md5="$(md5sum "$zip" | awk '{print $1}')"
+            [[ "$expected_md5" =~ ^[0-9a-fA-F]{32}$ ]] || {
+              echo "Invalid MD5 sidecar for $zip" >&2
+              exit 18
+            }
+            [[ "${expected_md5,,}" == "${actual_md5,,}" ]] || {
+              echo "MD5 mismatch for $zip" >&2
+              exit 19
+            }
+
             cp "$zip" "$zip.sha256" "$zip.md5" release-assets/
           done
 
@@ -74,7 +95,6 @@ jobs:
             exit 15
           fi
 
-          (cd release-assets && sha256sum *.zip | sort) > release-assets/SHA256SUMS.txt
           echo '[r3] all 10 variants verified'
 
       - name: Create GitHub Release r3
