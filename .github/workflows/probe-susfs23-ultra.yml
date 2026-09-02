@@ -1,0 +1,48 @@
+name: Probe SUSFS 2.3 ultra compatibility
+
+on:
+  push:
+    branches:
+      - work-n45-integrations-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dry-run exact v2.3 backports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --single-branch --branch miatoll-nexus45-nbp-xxksu-nosusfs \
+            https://x-access-token:${GH_TOKEN}@github.com/dtnpz/kernel_xiaomi_sm6250.git kernel
+          curl -fL --retry 3 \
+            https://github.com/notkernel-oss/not_samsung.sm8250-4.19/commit/380c5687f56bae41f59d006e4eb0e842096d39c9.patch \
+            -o /tmp/susfs23-419.patch
+          echo '=== KERNEL DRY RUN ==='
+          set +e
+          (cd kernel && patch --batch --dry-run -p1 < /tmp/susfs23-419.patch) 2>&1 | tee /tmp/kernel.log
+          krc=${PIPESTATUS[0]}
+          set -e
+          echo "KERNEL_PATCH_RC=$krc"
+          echo "KERNEL_FAILED_COUNT=$(grep -c 'FAILED' /tmp/kernel.log || true)"
+          grep -E 'patching file|FAILED|can.t find file|malformed|Reversed|Hunk #[0-9]+ succeeded' /tmp/kernel.log || true
+
+          git clone -q --depth 1 --branch v3.3.0-4 https://github.com/backslashxx/KernelSU.git xxksu
+          test "$(git -C xxksu rev-parse HEAD)" = e85e6a92846c8246b16e2d770c52e9692a556eef
+          curl -fL --retry 3 \
+            https://gitlab.com/simonpunk/susfs4ksu/-/raw/ec785f47d49f7b3871ca9356f450411020af7017/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch \
+            -o /tmp/ksu-susfs23.patch
+          echo '=== XXKSU DRY RUN ==='
+          set +e
+          (cd xxksu && patch --batch --dry-run -p1 < /tmp/ksu-susfs23.patch) 2>&1 | tee /tmp/xxksu.log
+          xrc=${PIPESTATUS[0]}
+          set -e
+          echo "XXKSU_PATCH_RC=$xrc"
+          echo "XXKSU_FAILED_COUNT=$(grep -c 'FAILED' /tmp/xxksu.log || true)"
+          grep -E 'patching file|FAILED|can.t find file|malformed|Reversed|Hunk #[0-9]+ succeeded' /tmp/xxksu.log || true
+          exit 0
