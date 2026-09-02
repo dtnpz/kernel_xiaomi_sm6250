@@ -23,9 +23,8 @@ echo "[N45] applying non-GKI Linux 4.14 SUSFS v2.2.0 backport"
 PATCH_DIR="$(mktemp -d)"
 trap 'rm -rf "$PATCH_DIR"' EXIT
 
-# Modern SUSFS mount-id code needs the newer IDA API.  This five-commit chain
-# already applies cleanly to N45. Keep it strict; these are API prerequisites,
-# not vendor hook placement.
+# Modern SUSFS mount-id code needs the newer IDA API. This five-commit chain
+# already applies cleanly to N45. Keep it strict; these are API prerequisites.
 IDA_REPO="sidex15/android_kernel_lge_sm8150"
 IDA_SERIES=(
   4ba6dccf73a620e565803e5995d5748ecfbb56a2
@@ -36,9 +35,7 @@ IDA_SERIES=(
 )
 
 # Xiaomi/Qualcomm trinket 4.14.357-openela is the compatibility reference for
-# the actual SUSFS layer. Its proc/fs layout is much closer to Miatoll than the
-# LG reference. Apply the SUSFS evolution through v2.2.0; MEMFD stays off for
-# the baseline because it is post-v2.2 experimental.
+# the actual SUSFS layer. Apply the SUSFS evolution through v2.2.0.
 SUSFS_REPO="FlopKernel-Series/flop_trinket-mi_kernel"
 SUSFS_SERIES=(
   90c3411026a2a55f96d2dc7046567b20b8b0d18f
@@ -74,6 +71,18 @@ SUSFS_SERIES=(
   b3d2d7c84abbc657c5b7db448f1110b989969d68
 )
 
+# These files have N45/Qualcomm hot-path implementations and obsolete Velvet
+# callbacks around the same functions. Replaying historical versions causes
+# conflicts and can regress performance. Exclude them from every historical
+# patch and adapt them once to final v2.2 state after the series.
+N45_FINAL_ADAPTER_FILES=(
+  fs/exec.c
+  fs/open.c
+  fs/proc/task_mmu.c
+  fs/stat.c
+  kernel/reboot.c
+)
+
 download_patch() {
   local repo="$1" sha="$2" out="$3"
   local url="https://github.com/$repo/commit/$sha.patch"
@@ -82,6 +91,28 @@ download_patch() {
     echo "Downloaded patch does not identify expected commit $sha" >&2
     exit 6
   }
+}
+
+filter_n45_final_adapter_files() {
+  local src="$1" dst="$2"
+  python3 - "$src" "$dst" "${N45_FINAL_ADAPTER_FILES[@]}" <<'PY'
+from pathlib import Path
+import re, sys
+src, dst, *skip = sys.argv[1:]
+skip = set(skip)
+lines = Path(src).read_text().splitlines(keepends=True)
+out = []
+keep = True
+seen_diff = False
+for line in lines:
+    m = re.match(r'^diff --git a/(.+?) b/(.+?)\s*$', line)
+    if m:
+        seen_diff = True
+        keep = m.group(1) not in skip and m.group(2) not in skip
+    if not seen_diff or keep:
+        out.append(line)
+Path(dst).write_text(''.join(out))
+PY
 }
 
 apply_strict_patch() {
@@ -100,12 +131,21 @@ apply_strict_patch() {
 }
 
 apply_vendor_patch() {
-  local repo="$1" sha="$2" patch_file="$PATCH_DIR/$sha.patch"
+  local repo="$1" sha="$2"
+  local raw_patch="$PATCH_DIR/$sha.patch"
+  local patch_file="$PATCH_DIR/$sha.filtered.patch"
   echo "[N45][SUSFS-v2][$repo] $sha"
-  download_patch "$repo" "$sha" "$patch_file"
+  download_patch "$repo" "$sha" "$raw_patch"
+  filter_n45_final_adapter_files "$raw_patch" "$patch_file"
+
+  # A commit may only touch one of the excluded files.
+  if ! grep -q '^diff --git ' "$patch_file"; then
+    echo "[N45][SUSFS-v2] all hunks handled by final N45 adapter: $sha"
+    return 0
+  fi
 
   if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
-    echo "[N45][SUSFS-v2] already present: $sha"
+    echo "[N45][SUSFS-v2] filtered patch already present: $sha"
     return 0
   fi
 
@@ -114,13 +154,12 @@ apply_vendor_patch() {
     return 0
   fi
 
-  # N45 has Qualcomm/Xiaomi vendor edits and legacy Velvet hooks around many
-  # of the same functions. GNU patch can safely place unchanged SUSFS hunks at
-  # shifted offsets. Dry-run first and require every hunk to be placeable;
-  # never accept .rej files or silently skipped hooks.
+  # Remaining files are close Xiaomi/Qualcomm layouts. Permit shifted context
+  # only after a complete dry-run proves every hunk applies. Never allow
+  # partial application or rejected hunks.
   echo "[N45][SUSFS-v2] exact context differs; trying checked vendor-offset apply"
-  if ! patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch_file" >/tmp/n45-susfs-patch.log 2>&1; then
-    cat /tmp/n45-susfs-patch.log >&2 || true
+  if ! patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch_file" >"$PATCH_DIR/$sha.log" 2>&1; then
+    cat "$PATCH_DIR/$sha.log" >&2 || true
     echo "[N45][SUSFS-v2] vendor adaptation still required at $sha" >&2
     exit 8
   fi
@@ -138,6 +177,8 @@ done
 for sha in "${SUSFS_SERIES[@]}"; do
   apply_vendor_patch "$SUSFS_REPO" "$sha"
 done
+
+python3 scripts/gx/apply-susfs-v2-n45-final-hooks.py
 
 python3 - arch/arm64/configs/vendor/miatoll-perf_defconfig <<'PY'
 from pathlib import Path
@@ -159,6 +200,7 @@ settings = {
     'KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG': 'y',
     'KSU_SUSFS_OPEN_REDIRECT': 'y',
     'KSU_SUSFS_SUS_MAP': 'y',
+    # Post-v2.2 experimental feature; keep off for the stable 10-variant set.
     'KSU_SUSFS_SUS_MEMFD': 'n',
 }
 for key, value in settings.items():
@@ -181,5 +223,6 @@ grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
 [[ -s include/linux/susfs.h ]]
 grep -Fq '#define SUSFS_VERSION "v2.2.0"' include/linux/susfs.h
 grep -Fq 'config KSU_SUSFS_SUS_MAP' "$KSU_DIR/kernel/Kconfig"
+grep -Fq 'ksu_handle_sys_reboot' kernel/reboot.c
 
-echo "[N45] SUSFS v2.2.0 Xiaomi 4.14 layer applied; SUS_MAP retained"
+echo "[N45] SUSFS v2.2.0 Xiaomi 4.14 layer applied; final N45 hooks retained"
