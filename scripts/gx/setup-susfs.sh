@@ -17,99 +17,94 @@ case "$root_kind" in
 esac
 
 [[ -d "$KSU_DIR" ]] || { echo "KernelSU source directory missing: $KSU_DIR" >&2; exit 2; }
-[[ "$SUSFS_414_BACKPORT_VERSION" == "v2.2.0" ]] || { echo "Unexpected SUSFS backport version pin" >&2; exit 4; }
-[[ "$SUSFS_414_BACKPORT_HEAD" == "0a5b29d63113137f481d2636af5e943631b76687" ]] || { echo "Unexpected SUSFS v2.2.0 head pin" >&2; exit 4; }
 
-echo "[N45] applying non-GKI Linux 4.14 SUSFS ${SUSFS_414_BACKPORT_VERSION} backport"
+echo "[N45] applying non-GKI Linux 4.14 SUSFS v2.2.0 backport"
 
 PATCH_DIR="$(mktemp -d)"
 trap 'rm -rf "$PATCH_DIR"' EXIT
 
-# Compatibility prerequisites are ordered by ancestry, oldest dependency first.
-# The requirement list in the SUSFS v2.0.0 backport commit is written newest
-# first, so applying it literally causes artificial conflicts on 4.14 trees.
-# After the prerequisites, apply the SUSFS-specific evolution through v2.2.0.
-SUSFS_414_PATCH_SERIES=(
+# Modern SUSFS mount-id code needs the newer IDA API.  This five-commit chain
+# already applies cleanly to N45 4.14.356 (CI #145).  Keep it, but do not drag
+# the LG-specific /proc performance prerequisite chain into this Xiaomi tree.
+IDA_REPO="sidex15/android_kernel_lge_sm8150"
+IDA_SERIES=(
   4ba6dccf73a620e565803e5995d5748ecfbb56a2
   ed8fd10d97a50ec424ae38a40351b5de060f9838
   e784224542fab4b3888d9103a1f678015221a7d1
   9ba899398576d329288b023566d3a731470ad13a
   d406904bb175cb9791b5aed4404df3268859d91b
+)
 
-  7f2847d02cdc4491b5ee6d4a0043854cbd6c7a1a
-  27956d255e3b012372951dd6131e07c106d2daae
-  95f8be4c8a86a491a1c2ac9bfe470aef9e1baa8f
-  03fd2fbe9c40da8128cec5c69ef54755c0f38c6c
-  6071a482c8e603be25895cc2cac5f0eab61c4051
-  849ca8ce954d9dbb082dcf83c98af861e98e5635
-  bbd5aec12b32097a71dc6a0097194a18f3ee9a17
-  6f94042bed51121f8f28a5e572cda20c21fed2e1
-  49a5115e11350ee68f6a5fbd56b3e817bf9e5aac
-  37ae2444584654f6785f2cc49181f05af788c9b2
-  0a8cbf3725edbacc5f1ead33eeae7e4d78823b5a
-
-  bb2f164bc19795ef704f17c82f04885d44421418
-  1f4ef7d7978c4a74812c2445ebfac02fd451e068
-  65fb7abff9ce217729b0c4cddf76e76522b636b6
-  b052cc180226f02767c53f9e56493c69ceaeb9b5
-  823b35a5e182ffab87515ed289aad264df29c3f6
-  b58b69522b102679e94656e506ce927f3490e07d
-  054fb29e19dcf9c2c1308781e25b94de8a89f248
-  b69c8cff50ae4306153ab318bf84f9eb3d6d3f88
-  95e2704328adb98c35bc280481eec62b60aeeea2
-  b34d30c5b6c4fe2fbc7316301ecad787c27d2481
-  3ebef172ec55f37d15bb3b8e86af9c3b5e91e9cc
-  f23710644821ef01f6c4d88675d2820b6ee53f74
-  817d1c4d534e64a2e5d4f9981924c9ebcf5cd5de
-  9051376aa276eae8c8845f5960d15438dce7c9c5
-  98d744aaa843226800b924282b1ffdb3fae41f0f
-  8cb32a1c13ce6c12b05008126f47114f35925a14
-  e23498ee3cbcbd71ccac95c7aa724deaff17d957
-  30dd021c189d55a8d043048bad330633b8fdc5a9
-  e58820631a8fca7bd29ee647987aeb92c0bc2ea8
-  7b01d7070d8a24eb981819b69817afdee1893385
-  3b3b47ad7071dea88ea95b444981e38ab0160b90
-  a7d543c780618f411845d9da6e4c9ede4effa8ae
-  51e6f383585a3ceedd3c3e3c00c81361831d4d24
-  790b90dce92d036d11d44d9d8ae642ffd4a99f0b
-  4a1631c91a67b6400586fd5f1f97cea339c2c1ad
-  0223817cca2c2f32bb5b68966c5a7103aaea6e4b
-  c07594f674038b1135f62c84c0a7ff7cf7c9efff
-  b445ec817c8123d8f037ceab3d92b795d2f5c1b8
-  b287bdaa530d53fc23b2f539c4f112a314c64d26
-  263d2d2b7bc2726354f43a5368ed59a18ace01b9
-  0a5b29d63113137f481d2636af5e943631b76687
+# Xiaomi/Qualcomm trinket 4.14.357-openela is the compatibility reference for
+# the actual SUSFS layer.  Its maintainer adapted task_mmu/proc hooks to the
+# local Android 4.14 layout instead of importing the unrelated LG smaps chain.
+# Apply only SUSFS/kernel-side evolution up through the v2.2.0 bump; MEMFD is
+# post-v2.2 experimental and remains disabled for the baseline.
+SUSFS_REPO="FlopKernel-Series/flop_trinket-mi_kernel"
+SUSFS_SERIES=(
+  90c3411026a2a55f96d2dc7046567b20b8b0d18f
+  867a1638a7832bf9a1e0d63a62932a24139ba8ae
+  9c648d040a6264e0a337d50b2e244c39047c76c6
+  eb238aae838743f2da4f675c5164c7e97e198d82
+  1b4f90acba4033f8cdf6b40b2df9a4c5f15d4388
+  c389e1279b263872a4096824dbb92b667bc41f6a
+  74a09f63dba838c872d457822ca6f38ab645c5e5
+  5ad0535b268f74e3db73a9323022e4315b8a2c14
+  883341d66d383753b4e7c0166e1033c21272e780
+  c70572615132919caa23f9b00a72d1b943021787
+  7c6e9ce0c136ee125d78486faeebd31ee162fd45
+  6aeceddf784dbddd0538dc0506c75eb7522a4d43
+  1a7e1a4e7d3847e12da7abe58bc63622e659e315
+  85a5fbc10c053204d76123e9fbda064ea7d912eb
+  f22598112e90c0b72ad08f59df7bf89dbd47ca6f
+  8835c0d45106d400df092eeb9354840c6665741c
+  67f2045956de4e050145f0d3f1ad3ea1d0ba47d0
+  625df5ab4efa301caa14fe82c89b7df0c695f3f3
+  74ed015e7a276169a43ab7e51c64f0f0eaaf292d
+  2e5a748cf3f3fe1c385db26e8fe475267463ff6f
+  bbb6a17411063bf08cf61775c7fce605c87003bd
+  0f0d42d53f300ea7d620d46d175393e5b2cc085a
+  ebdaf2e3db9525b06d8c11bb1946d7313066ba20
+  1bf2ef2b94dbba9d6f3a1632bea7ccc1b928abd3
+  016a0cd1f2fc8fdc420f943a5e27c57af22d7edc
+  8f0dc40daad64df238acf648fe696263e8a76981
+  5605d61a88136a35928147ab8dabcf0bb925fc22
+  e9d86a305719542588cadae735d7166cd4aeeb55
+  11427eb954c36ea8eedb092fa411f82a6f51c7b5
+  7c15be48d89d1dc324aa17909b8357b081e97c24
+  b3d2d7c84abbc657c5b7db448f1110b989969d68
 )
 
 apply_ref_patch() {
-  local sha="$1"
+  local repo="$1"
+  local sha="$2"
   local patch_file="$PATCH_DIR/$sha.patch"
-  local url="https://github.com/sidex15/android_kernel_lge_sm8150/commit/$sha.patch"
+  local url="https://github.com/$repo/commit/$sha.patch"
 
-  echo "[N45][SUSFS-v2] $sha"
+  echo "[N45][SUSFS-v2][$repo] $sha"
   curl -fsSL --retry 4 --retry-delay 2 "$url" -o "$patch_file"
   grep -Fqi "$sha" "$patch_file" || {
     echo "Downloaded patch does not identify expected commit $sha" >&2
     exit 6
   }
 
-  # Use git-apply checks rather than GNU patch's auto reverse-detection.  The
-  # latter can report a forward patch as already present on sufficiently close
-  # vendor trees, which masked missing prerequisites in CI #144.
   if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     echo "[N45][SUSFS-v2] already present: $sha"
     return 0
   fi
 
   if ! git apply --check "$patch_file"; then
-    echo "[N45][SUSFS-v2] patch $sha does not apply to the N45 tree; adapt this exact commit next." >&2
+    echo "[N45][SUSFS-v2] $repo patch $sha does not apply; adapt this exact SUSFS hunk next." >&2
     exit 7
   fi
   git apply "$patch_file"
 }
 
-for sha in "${SUSFS_414_PATCH_SERIES[@]}"; do
-  apply_ref_patch "$sha"
+for sha in "${IDA_SERIES[@]}"; do
+  apply_ref_patch "$IDA_REPO" "$sha"
+done
+for sha in "${SUSFS_SERIES[@]}"; do
+  apply_ref_patch "$SUSFS_REPO" "$sha"
 done
 
 python3 - arch/arm64/configs/vendor/miatoll-perf_defconfig <<'PY'
@@ -132,7 +127,6 @@ settings = {
     'KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG': 'y',
     'KSU_SUSFS_OPEN_REDIRECT': 'y',
     'KSU_SUSFS_SUS_MAP': 'y',
-    # SUS_MEMFD landed after the v2.2.0 baseline and is explicitly experimental.
     'KSU_SUSFS_SUS_MEMFD': 'n',
 }
 for key, value in settings.items():
@@ -156,4 +150,4 @@ grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
 grep -Fq '#define SUSFS_VERSION "v2.2.0"' include/linux/susfs.h
 grep -Fq 'config KSU_SUSFS_SUS_MAP' "$KSU_DIR/kernel/Kconfig"
 
-echo "[N45] SUSFS v2.2.0 Linux 4.14 layer applied; SUS_MAP retained"
+echo "[N45] SUSFS v2.2.0 Xiaomi 4.14 layer applied; SUS_MAP retained"
