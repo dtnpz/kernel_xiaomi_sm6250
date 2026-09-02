@@ -1,0 +1,24 @@
+name: Probe SUSFS 2.2 upstream
+
+on:
+  push:
+    branches:
+      - work-n45-integrations-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve and inspect upstream
+        run: |
+          set -euxo pipefail
+          git ls-remote https://gitlab.com/simonpunk/susfs4ksu.git refs/heads/gki-android12-5.10
+          git clone --depth 1 --single-branch --branch gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          git -C susfs rev-parse HEAD
+          git -C susfs log -1 --format='%H %cI %s'
+          grep -R '^#define SUSFS_VERSION' susfs/kernel_patches/include/linux || true
+          find susfs/kernel_patches -maxdepth 2 -type f -printf '%P\n' | sort
