@@ -1,0 +1,38 @@
+name: Probe SUSFS 2.3 details
+
+on:
+  push:
+    branches:
+      - work-n45-integrations-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Inspect v2.3 API and patch topology
+        run: |
+          set -euo pipefail
+          git clone -q https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          git -C susfs checkout -q ec785f47d49f7b3871ca9356f450411020af7017
+          echo '=== VERSION ==='
+          grep -R '^#define SUSFS_VERSION' susfs/kernel_patches/include/linux
+          echo '=== KERNEL PATCH FILES ==='
+          grep '^diff --git ' susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
+          echo '=== KERNEL PATCH HUNKS ==='
+          grep '^@@' susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
+          echo '=== KERNEL PATCH SUSFS SYMBOL LINES ==='
+          grep -E '^\+.*(susfs|SUSFS)' susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch | head -n 500
+          echo '=== KSU PATCH FILES ==='
+          grep '^diff --git ' susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          echo '=== KSU PATCH HUNKS ==='
+          grep '^@@' susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+          echo '=== KSU PATCH API CALLS ==='
+          grep -E '^\+.*(susfs|SUSFS)' susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch | head -n 700
+          echo '=== DEFINES / STRUCTS / EXPORTED API ==='
+          grep -E '^(#define SUSFS_|struct st_|void susfs_|int susfs_|bool susfs_|extern .*susfs_)' susfs/kernel_patches/include/linux/susfs.h | head -n 500
+          echo '=== FS SUSFS REFERENCES ==='
+          grep -E '^(static |void |int |bool |long |unsigned |struct ).*susfs_|^SYSCALL|EXPORT_SYMBOL' susfs/kernel_patches/fs/susfs.c | head -n 700
