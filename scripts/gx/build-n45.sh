@@ -69,6 +69,8 @@ bash scripts/gx/apply-bpf-failure-trace.sh
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 make O="$OUT_DIR" "$DEFCONFIG"
+CONFIG="$OUT_DIR/.config"
+bash scripts/gx/validate-generated-config.sh "$CONFIG"
 
 make -j"$(nproc --all)" O="$OUT_DIR" \
   ARCH=arm64 \
