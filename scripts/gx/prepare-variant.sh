@@ -54,6 +54,10 @@ fi
 
 if [[ "$GX_SUSFS" == 1 ]]; then
   bash scripts/gx/setup-susfs.sh "$GX_ROOT"
+  # SUSFS needs the newer IDA API, but its 4.14 reference chain assumes a
+  # pre-existing XArray backport. N45 does not have XArray; keep the API while
+  # retaining the proven radix-tree/simple-lock implementation used by 4.14.
+  python3 scripts/gx/adapt-ida-414-no-xarray.py
 fi
 
 echo "[GXT] variant preparation complete: $GX_VARIANT"
