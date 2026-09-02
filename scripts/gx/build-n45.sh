@@ -62,6 +62,15 @@ rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 make O="$OUT_DIR" "$DEFCONFIG"
 
+CONFIG="$OUT_DIR/.config"
+if grep -Eq '^CONFIG_(KPROBES|KRETPROBES|KPROBE_EVENTS)=y$' "$CONFIG" || \
+   grep -Eq '^CONFIG_KSU_(KPROBES_HOOK|KPROBES_KSUD)=y$' "$CONFIG"; then
+  echo "[N45] kprobe path unexpectedly enabled in generated config" >&2
+  grep -E '^(CONFIG_(KPROBES|KRETPROBES|KPROBE_EVENTS)|CONFIG_KSU_(KPROBES_HOOK|KPROBES_KSUD))=' "$CONFIG" >&2 || true
+  exit 4
+fi
+echo "[N45] generated config verified: no kprobe path enabled"
+
 make -j"$(nproc --all)" O="$OUT_DIR" \
   ARCH=arm64 \
   CC=clang \
@@ -82,7 +91,6 @@ make -j"$(nproc --all)" O="$OUT_DIR" \
 IMAGE="$OUT_DIR/arch/arm64/boot/Image.gz"
 DTBO="$OUT_DIR/arch/arm64/boot/dtbo.img"
 DTB="$OUT_DIR/arch/arm64/boot/dts/qcom/cust-atoll-ab.dtb"
-CONFIG="$OUT_DIR/.config"
 
 for f in "$IMAGE" "$DTBO" "$DTB" "$CONFIG"; do
   if [[ ! -s "$f" ]]; then

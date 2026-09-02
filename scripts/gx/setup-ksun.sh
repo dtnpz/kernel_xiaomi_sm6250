@@ -16,7 +16,7 @@ KSUN_DIR="$ROOT_DIR/KernelSU-Next"
 DEFCONFIG="arch/arm64/configs/$GX_DEFCONFIG"
 
 rm -rf "$KSUN_DIR"
-rm -f drivers/kernelsu
+rm -rf drivers/kernelsu
 mkdir -p "$KSUN_DIR"
 git -C "$KSUN_DIR" init -q
 git -C "$KSUN_DIR" remote add origin "$KSUN_REPO"

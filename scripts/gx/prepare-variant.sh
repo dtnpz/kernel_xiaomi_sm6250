@@ -105,4 +105,30 @@ if [[ "$GX_SUSFS" == 1 ]]; then
   bash scripts/gx/setup-susfs.sh "$GX_ROOT"
 fi
 
+# Every N45 variant must stay on non-kprobe integration paths. Root-specific
+# setup may write its own config first; this final common pass always wins.
+python3 - "$defconfig_path" <<'PY'
+from pathlib import Path
+import re, sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+keys = (
+    'KPROBES',
+    'KRETPROBES',
+    'KPROBE_EVENTS',
+    'KSU_KPROBES_HOOK',
+    'KSU_KPROBES_KSUD',
+)
+out = []
+for line in s.splitlines():
+    if any(re.match(rf'^(?:CONFIG_{re.escape(k)}=.*|# CONFIG_{re.escape(k)} is not set)$', line)
+           for k in keys):
+        continue
+    out.append(line)
+out.extend(f'# CONFIG_{k} is not set' for k in keys)
+p.write_text('\n'.join(out) + '\n')
+PY
+
+echo "[N45] common config: kprobe paths disabled"
 echo "[N45] variant preparation complete: $GX_VARIANT"
