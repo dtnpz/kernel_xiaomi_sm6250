@@ -29,15 +29,37 @@ grep -Fqi "$REF_SHA" "$RAW" || {
 
 # Reference tree stores xxKSU in drivers/xxksu; our setup script integrates the
 # exact pinned backslashxx core at KernelSU/. Rewrite only paths, not content.
-python3 - "$RAW" "$PATCH" <<'PY'
+#
+# xxKSU 32602 also made try_umount() static inline after the reference adapter
+# was authored. Preserve that newer declaration for the normal path, while the
+# SUSFS TRY_UMOUNT branch still exports a plain global void function exactly as
+# required by the v2 adapter. This is a narrow 32602 context adaptation, not a
+# downgrade of the pinned xxKSU core.
+python3 - "$RAW" "$PATCH" "$KSU_DIR/kernel/feature/kernel_umount.c" <<'PY'
 from pathlib import Path
 import sys
-src, dst = map(Path, sys.argv[1:])
+src, dst, umount_file = map(Path, sys.argv[1:])
 s = src.read_text()
 s = s.replace('a/drivers/xxksu/', 'a/KernelSU/')
 s = s.replace('b/drivers/xxksu/', 'b/KernelSU/')
 s = s.replace('--- drivers/xxksu/', '--- KernelSU/')
 s = s.replace('+++ drivers/xxksu/', '+++ KernelSU/')
+
+current = umount_file.read_text()
+new_anchor = 'static inline void try_umount(const char *mnt, int flags)'
+old_patch_anchor = ' static void try_umount(const char *mnt, int flags)\n'
+new_patch_anchor = ' static inline void try_umount(const char *mnt, int flags)\n'
+if new_anchor in current:
+    count = s.count(old_patch_anchor)
+    if count != 1:
+        raise SystemExit(
+            f'expected exactly one reference try_umount declaration, found {count}'
+        )
+    s = s.replace(old_patch_anchor, new_patch_anchor, 1)
+    print('[N45][xxKSU-SUSFS] adapted try_umount declaration for xxKSU 32602')
+elif 'static void try_umount(const char *mnt, int flags)' not in current:
+    raise SystemExit('unexpected xxKSU try_umount declaration; refusing to guess')
+
 dst.write_text(s)
 PY
 
@@ -65,5 +87,11 @@ fi
 grep -Fq 'config KSU_SUSFS' KernelSU/kernel/Kconfig
 grep -Fq 'CONFIG_KSU_SUSFS' KernelSU/kernel/Makefile
 grep -Rqs 'susfs' KernelSU/kernel/supercall KernelSU/kernel/selinux KernelSU/kernel/feature
+
+# Prove that TRY_UMOUNT can call the exported helper on the pinned 32602 core.
+grep -Fq '#if !defined(CONFIG_KSU_SUSFS) || !defined(CONFIG_KSU_SUSFS_TRY_UMOUNT)' \
+  KernelSU/kernel/feature/kernel_umount.c
+grep -Fq 'void try_umount(const char *mnt, int flags)' \
+  KernelSU/kernel/feature/kernel_umount.c
 
 echo "[N45][xxKSU-SUSFS] SUSFS v2 core adapter applied on pinned xxKSU 32602"
