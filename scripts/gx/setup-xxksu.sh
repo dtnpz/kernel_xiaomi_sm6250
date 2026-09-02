@@ -63,8 +63,16 @@ grep -Fxq '# CONFIG_KSU_HACK_ARM64_BRANCH_LINK is not set' "$DEFCONFIG"
 grep -Fxq '# CONFIG_KSU_KPROBES_KSUD is not set' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_LSM_SECURITY_HOOKS=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y' "$DEFCONFIG"
-grep -Fq 'DECLARE_WAIT_QUEUE_HEAD(throne_tracker_waitq)' KernelSU/kernel/manager/throne_tracker.c
+
+# Validate the current conservative single-flight scheduler, not the obsolete
+# persistent waitqueue implementation from the previous experiment.
+grep -Fq 'static atomic_t throne_tracker_running = ATOMIC_INIT(0);' KernelSU/kernel/manager/throne_tracker.c
+grep -Fq 'atomic_cmpxchg(&throne_tracker_running, 0, 1)' KernelSU/kernel/manager/throne_tracker.c
+grep -Fq 'is_file_existing("/data/system/packages.list.tmp")' KernelSU/kernel/manager/throne_tracker.c
+grep -Fq 'is_file_stable(SYSTEM_PACKAGES_LIST_PATH)' KernelSU/kernel/manager/throne_tracker.c
+grep -Fq 'throne_tracker_fn(prune_only);' KernelSU/kernel/manager/throne_tracker.c
 grep -Fq 'set_user_nice(current, 10);' KernelSU/kernel/manager/throne_tracker.c
 ! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
+! grep -Fq 'packages.list did not stabilize; deferring scan' KernelSU/kernel/manager/throne_tracker.c
 
 echo "[N45] backslashxx KernelSU integration ready"
