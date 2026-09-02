@@ -1,5 +1,5 @@
 # GX Miatoll Nexus-4.5-style kernel source pins
-# Generated/verified 2026-09-01.
+# Generated/verified 2026-09-02.
 # Do not silently replace these with floating branches in release builds.
 
 VELVET_REPO=https://github.com/ProjectVelvet/kernel_xiaomi_sm6250.git
@@ -11,10 +11,10 @@ OPENELA_REPO=https://github.com/openela/kernel-lts.git
 OPENELA_TARGET_TAG=v4.14.356-openela
 OPENELA_TARGET_COMMIT=a76b6a6556353484f6f29572989cd37b6cff90cc
 
-# backslashxx KernelSU v3.3.0-2
+# backslashxx KernelSU v3.3.0-4
 XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
-XXKSU_TAG=v3.3.0-2
-XXKSU_COMMIT=1d1cc5cf1981dbf8ce3258ba16e1a6b16d9651f2
+XXKSU_TAG=v3.3.0-4
+XXKSU_COMMIT=e85e6a92846c8246b16e2d770c52e9692a556eef
 
 # KernelSU-Next manager/release target.
 KSUN_REPO=https://github.com/KernelSU-Next/KernelSU-Next.git
