@@ -87,14 +87,33 @@ else
   fi
 fi
 
-grep -Fq 'config KSU_SUSFS' KernelSU/kernel/Kconfig
-grep -Fq 'CONFIG_KSU_SUSFS' KernelSU/kernel/Makefile
-grep -Rqs 'susfs' KernelSU/kernel/supercall KernelSU/kernel/selinux KernelSU/kernel/feature
+# Verify the actual adapter semantics. The reference Makefile does not contain
+# CONFIG_KSU_SUSFS; it only adds the SUSFS_VERSION probe, while the Kconfig owns
+# the feature symbols.
+grep -Fq 'config KSU_SUSFS' KernelSU/kernel/Kconfig || {
+  echo "[N45][xxKSU-SUSFS] verify failed: KSU_SUSFS Kconfig missing" >&2
+  exit 6
+}
+grep -Fq 'SUSFS_VERSION' KernelSU/kernel/Makefile || {
+  echo "[N45][xxKSU-SUSFS] verify failed: SUSFS_VERSION Makefile probe missing" >&2
+  exit 6
+}
+grep -Rqs 'susfs' KernelSU/kernel/supercall KernelSU/kernel/selinux KernelSU/kernel/feature || {
+  echo "[N45][xxKSU-SUSFS] verify failed: SUSFS core glue missing" >&2
+  exit 6
+}
 
 # Prove that TRY_UMOUNT can call the exported helper on the pinned 32602 core.
 grep -Fq '#if !defined(CONFIG_KSU_SUSFS) || !defined(CONFIG_KSU_SUSFS_TRY_UMOUNT)' \
-  KernelSU/kernel/feature/kernel_umount.c
+  KernelSU/kernel/feature/kernel_umount.c || {
+  echo "[N45][xxKSU-SUSFS] verify failed: TRY_UMOUNT conditional missing" >&2
+  exit 6
+}
 grep -Fq 'void try_umount(const char *mnt, int flags)' \
-  KernelSU/kernel/feature/kernel_umount.c
+  KernelSU/kernel/feature/kernel_umount.c || {
+  echo "[N45][xxKSU-SUSFS] verify failed: exported try_umount missing" >&2
+  exit 6
+}
 
+echo "[N45][xxKSU-SUSFS] adapter verification passed"
 echo "[N45][xxKSU-SUSFS] SUSFS v2 core adapter applied on pinned xxKSU 32602"
