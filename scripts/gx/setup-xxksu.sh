@@ -21,6 +21,10 @@ if [[ "$actual" != "$XXKSU_COMMIT" ]]; then
   exit 4
 fi
 
+# Miatoll runtime adaptation: never run manager discovery synchronously on the
+# packages.list observer and never spawn a high-priority scanner per event.
+python3 scripts/gx/adapt-xxksu-throne-worker.py
+
 python3 <<'PY'
 from pathlib import Path
 import re
@@ -34,8 +38,8 @@ settings = {
     'KSU_HACK_ARM64_BRANCH_LINK': 'n',
     'KSU_KPROBES_KSUD': 'n',
     'KSU_LSM_SECURITY_HOOKS': 'y',
-    # Keep the first packages.list throne scan off the system_server rename path.
-    # xxKSU 32602 otherwise runs the first track_throne() synchronously.
+    # Retain the upstream option for generated-config visibility; the N45
+    # adapter above additionally coalesces all events onto one worker.
     'KSU_THRONE_TRACKER_ALWAYS_THREADED': 'y',
 }
 
@@ -59,5 +63,8 @@ grep -Fxq '# CONFIG_KSU_HACK_ARM64_BRANCH_LINK is not set' "$DEFCONFIG"
 grep -Fxq '# CONFIG_KSU_KPROBES_KSUD is not set' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_LSM_SECURITY_HOOKS=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y' "$DEFCONFIG"
+grep -Fq 'DECLARE_WAIT_QUEUE_HEAD(throne_tracker_waitq)' KernelSU/kernel/manager/throne_tracker.c
+grep -Fq 'set_user_nice(current, 10);' KernelSU/kernel/manager/throne_tracker.c
+! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
 
 echo "[N45] backslashxx KernelSU integration ready"
