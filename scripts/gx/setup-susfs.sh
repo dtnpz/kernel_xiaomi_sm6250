@@ -24,8 +24,8 @@ PATCH_DIR="$(mktemp -d)"
 trap 'rm -rf "$PATCH_DIR"' EXIT
 
 # Modern SUSFS mount-id code needs the newer IDA API.  This five-commit chain
-# already applies cleanly to N45 4.14.356 (CI #145).  Keep it, but do not drag
-# the LG-specific /proc performance prerequisite chain into this Xiaomi tree.
+# already applies cleanly to N45. Keep it strict; these are API prerequisites,
+# not vendor hook placement.
 IDA_REPO="sidex15/android_kernel_lge_sm8150"
 IDA_SERIES=(
   4ba6dccf73a620e565803e5995d5748ecfbb56a2
@@ -36,10 +36,9 @@ IDA_SERIES=(
 )
 
 # Xiaomi/Qualcomm trinket 4.14.357-openela is the compatibility reference for
-# the actual SUSFS layer.  Its maintainer adapted task_mmu/proc hooks to the
-# local Android 4.14 layout instead of importing the unrelated LG smaps chain.
-# Apply only SUSFS/kernel-side evolution up through the v2.2.0 bump; MEMFD is
-# post-v2.2 experimental and remains disabled for the baseline.
+# the actual SUSFS layer. Its proc/fs layout is much closer to Miatoll than the
+# LG reference. Apply the SUSFS evolution through v2.2.0; MEMFD stays off for
+# the baseline because it is post-v2.2 experimental.
 SUSFS_REPO="FlopKernel-Series/flop_trinket-mi_kernel"
 SUSFS_SERIES=(
   90c3411026a2a55f96d2dc7046567b20b8b0d18f
@@ -75,36 +74,69 @@ SUSFS_SERIES=(
   b3d2d7c84abbc657c5b7db448f1110b989969d68
 )
 
-apply_ref_patch() {
-  local repo="$1"
-  local sha="$2"
-  local patch_file="$PATCH_DIR/$sha.patch"
+download_patch() {
+  local repo="$1" sha="$2" out="$3"
   local url="https://github.com/$repo/commit/$sha.patch"
-
-  echo "[N45][SUSFS-v2][$repo] $sha"
-  curl -fsSL --retry 4 --retry-delay 2 "$url" -o "$patch_file"
-  grep -Fqi "$sha" "$patch_file" || {
+  curl -fsSL --retry 4 --retry-delay 2 "$url" -o "$out"
+  grep -Fqi "$sha" "$out" || {
     echo "Downloaded patch does not identify expected commit $sha" >&2
     exit 6
   }
+}
+
+apply_strict_patch() {
+  local repo="$1" sha="$2" patch_file="$PATCH_DIR/$sha.patch"
+  echo "[N45][SUSFS-v2][$repo] $sha"
+  download_patch "$repo" "$sha" "$patch_file"
+  if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
+    echo "[N45][SUSFS-v2] already present: $sha"
+    return 0
+  fi
+  if ! git apply --check "$patch_file"; then
+    echo "[N45][SUSFS-v2] strict prerequisite conflict at $sha" >&2
+    exit 7
+  fi
+  git apply "$patch_file"
+}
+
+apply_vendor_patch() {
+  local repo="$1" sha="$2" patch_file="$PATCH_DIR/$sha.patch"
+  echo "[N45][SUSFS-v2][$repo] $sha"
+  download_patch "$repo" "$sha" "$patch_file"
 
   if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
     echo "[N45][SUSFS-v2] already present: $sha"
     return 0
   fi
 
-  if ! git apply --check "$patch_file"; then
-    echo "[N45][SUSFS-v2] $repo patch $sha does not apply; adapt this exact SUSFS hunk next." >&2
-    exit 7
+  if git apply --check "$patch_file" >/dev/null 2>&1; then
+    git apply "$patch_file"
+    return 0
   fi
-  git apply "$patch_file"
+
+  # N45 has Qualcomm/Xiaomi vendor edits and legacy Velvet hooks around many
+  # of the same functions. GNU patch can safely place unchanged SUSFS hunks at
+  # shifted offsets. Dry-run first and require every hunk to be placeable;
+  # never accept .rej files or silently skipped hooks.
+  echo "[N45][SUSFS-v2] exact context differs; trying checked vendor-offset apply"
+  if ! patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch_file" >/tmp/n45-susfs-patch.log 2>&1; then
+    cat /tmp/n45-susfs-patch.log >&2 || true
+    echo "[N45][SUSFS-v2] vendor adaptation still required at $sha" >&2
+    exit 8
+  fi
+  patch --batch --forward --fuzz=3 -p1 < "$patch_file"
+  if find . -name '*.rej' -print -quit | grep -q .; then
+    echo "[N45][SUSFS-v2] rejected hunk detected after $sha" >&2
+    find . -name '*.rej' -print >&2
+    exit 9
+  fi
 }
 
 for sha in "${IDA_SERIES[@]}"; do
-  apply_ref_patch "$IDA_REPO" "$sha"
+  apply_strict_patch "$IDA_REPO" "$sha"
 done
 for sha in "${SUSFS_SERIES[@]}"; do
-  apply_ref_patch "$SUSFS_REPO" "$sha"
+  apply_vendor_patch "$SUSFS_REPO" "$sha"
 done
 
 python3 - arch/arm64/configs/vendor/miatoll-perf_defconfig <<'PY'
