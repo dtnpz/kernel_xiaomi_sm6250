@@ -51,6 +51,11 @@ export KBUILD_COMPILER_STRING="$(clang --version | head -n1 | sed -E 's/[[:space
 mkdir -p "$OUT_DIR" "$ARTIFACT_DIR"
 rm -rf "$AK3_WORK"
 
+# Every N45 variant is built from the same real OpenELA 4.14.357 eLTS delta.
+# This runs before BP/KSU/SUSFS mutation so those layers stay comparable with
+# the smooth NONKSU baseline.
+bash scripts/gx/apply-openela-4.14.357.sh
+
 printf '[N45] variant: %s\n' "$GX_VARIANT"
 printf '[N45] defconfig: %s\n' "$DEFCONFIG"
 printf '[N45] compiler: %s\n' "$KBUILD_COMPILER_STRING"
