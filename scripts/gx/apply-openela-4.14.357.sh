@@ -33,12 +33,38 @@ ELTS_SERIES=(
 PATCH_DIR="$(mktemp -d)"
 trap 'rm -rf "$PATCH_DIR"' EXIT
 
+elts_semantically_present() {
+  local sha="$1"
+  case "$sha" in
+    30c9d277838dcc00bc561d36ac88215123cc71f4)
+      # N45 already carries the generalized devm_clk_state implementation
+      # from this clk fix, with an additional vendor-safe exit=NULL init in
+      # devm_get_clk_from_child(). Do not replace it with the older eLTS hunk.
+      grep -Fq 'struct devm_clk_state {' drivers/clk/clk-devres.c &&
+      grep -Fq 'state = devres_alloc(devm_clk_release, sizeof(*state), GFP_KERNEL);' drivers/clk/clk-devres.c &&
+      grep -Fq 'state->clk = clk;' drivers/clk/clk-devres.c
+      ;;
+    a7cd6312e4773b26231480ac0a8c24f8a7b24f58)
+      # Follow-up fixes the bad pointer cast introduced by 30c9. N45 already
+      # has the final safe form, so require that exact statement before skip.
+      grep -Fq 'struct devm_clk_state *state = res;' drivers/clk/clk-devres.c
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 apply_elts_patch() {
   local sha="$1"
   local patch_file="$PATCH_DIR/$sha.patch"
   local url="https://github.com/$ELTS_REPO/commit/$sha.patch"
 
   echo "[N45][eLTS] $sha"
+
+  if elts_semantically_present "$sha"; then
+    echo "[N45][eLTS] semantic equivalent already present: $sha"
+    return 0
+  fi
+
   curl -fsSL --retry 4 --retry-delay 2 "$url" -o "$patch_file"
   grep -Fqi "$sha" "$patch_file" || {
     echo "[N45][eLTS] downloaded patch does not identify $sha" >&2
@@ -56,7 +82,7 @@ apply_elts_patch() {
   fi
 
   # Qualcomm adds vendor fields/context around otherwise identical upstream
-  # structures (for example ll_node immediately before skb->sk).  Permit
+  # structures (for example ll_node immediately before skb->sk). Permit
   # shifted context only after a complete dry-run proves every hunk applies.
   # Never allow partial application or .rej files.
   echo "[N45][eLTS] exact context differs; trying checked Qualcomm-context apply"
