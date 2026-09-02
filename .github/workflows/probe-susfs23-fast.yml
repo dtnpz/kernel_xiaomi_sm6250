@@ -1,0 +1,48 @@
+name: Probe SUSFS 2.3 fast compatibility
+
+on:
+  push:
+    branches:
+      - work-n45-integrations-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Probe kernel and xxKSU patch compatibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --single-branch --branch miatoll-nexus45-nbp-xxksu-nosusfs \
+            https://x-access-token:${GH_TOKEN}@github.com/dtnpz/kernel_xiaomi_sm6250.git kernel
+          git clone -q https://github.com/notkernel-oss/not_samsung.sm8250-4.19.git ref419
+          git -C ref419 checkout -q 380c5687f56bae41f59d006e4eb0e842096d39c9
+          git -C ref419 show --format= 380c5687f56bae41f59d006e4eb0e842096d39c9 > /tmp/susfs23-419.patch
+
+          echo '=== KERNEL DRY RUN ==='
+          set +e
+          (cd kernel && patch --batch --dry-run -p1 < /tmp/susfs23-419.patch) 2>&1 | tee /tmp/kernel-dry.log
+          krc=${PIPESTATUS[0]}
+          set -e
+          echo "KERNEL_PATCH_RC=$krc"
+          echo '=== KERNEL FAILED HUNKS ==='
+          grep -E 'FAILED|can.t find file|malformed|Reversed|Hunk #[0-9]+ succeeded' /tmp/kernel-dry.log || true
+
+          git clone -q https://github.com/backslashxx/KernelSU.git xxksu
+          git -C xxksu checkout -q e85e6a92846c8246b16e2d770c52e9692a556eef
+          git clone -q https://gitlab.com/simonpunk/susfs4ksu.git susfs
+          git -C susfs checkout -q ec785f47d49f7b3871ca9356f450411020af7017
+          echo '=== XXKSU DRY RUN ==='
+          set +e
+          (cd xxksu && patch --batch --dry-run -p1 < ../susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch) 2>&1 | tee /tmp/xxksu-dry.log
+          xrc=${PIPESTATUS[0]}
+          set -e
+          echo "XXKSU_PATCH_RC=$xrc"
+          echo '=== XXKSU FAILED HUNKS ==='
+          grep -E 'FAILED|can.t find file|malformed|Reversed|Hunk #[0-9]+ succeeded' /tmp/xxksu-dry.log || true
+          exit 0
