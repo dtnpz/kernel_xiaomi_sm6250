@@ -51,7 +51,34 @@ jobs:
           p.write_text(s.replace(old, new, 1))
           print('[netbpfload-kver] netbpfload sees real 4.14; bpfloader/netd keep 5.4 spoof')
           PY
-          bash scripts/gx/build-n45.sh
+
+          # Keep the build itself unchanged, but always retain and surface the
+          # first real compiler/linker failure instead of losing it when the
+          # wrapper exits under `set -e`.
+          set +e
+          set -o pipefail
+          bash scripts/gx/build-n45.sh 2>&1 | tee "$GITHUB_WORKSPACE/build-compile.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$status" -ne 0 ]]; then
+            echo '::group::First compiler/linker diagnostics'
+            grep -nE '(^|[[:space:]])(error:|fatal error:|undefined reference|ld\.lld: error:|make(\[[0-9]+\])?: \*\*\*)' \
+              "$GITHUB_WORKSPACE/build-compile.log" | head -120 || true
+            echo '::endgroup::'
+            echo '::group::Build log tail'
+            tail -250 "$GITHUB_WORKSPACE/build-compile.log" || true
+            echo '::endgroup::'
+          fi
+          exit "$status"
+
+      - name: Upload failed-build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: n45-build-log-${{ github.run_number }}
+          path: build-compile.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload flashable ZIP and build metadata
         uses: actions/upload-artifact@v4
