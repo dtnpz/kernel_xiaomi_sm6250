@@ -1,0 +1,111 @@
+name: Probe SUSFS 2.2 Flop 4.14 series
+
+on:
+  push:
+    branches:
+      - work-n45-integrations-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Replay 4.14 SUSFS core series onto GXT baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --single-branch --branch miatoll-nexus45-nbp-xxksu-nosusfs \
+            https://x-access-token:${GH_TOKEN}@github.com/dtnpz/kernel_xiaomi_sm6250.git kernel
+          cd kernel
+
+          # Prerequisites explicitly documented by the 4.14 SUSFS v2 backport.
+          prereq=(
+            d406904bb175cb9791b5aed4404df3268859d91b
+            9ba899398576d329288b023566d3a731470ad13a
+            e784224542fab4b3888d9103a1f678015221a7d1
+            ed8fd10d97a50ec424ae38a40351b5de060f9838
+            4ba6dccf73a620e565803e5995d5748ecfbb56a2
+            0a8cbf3
+            37ae244
+            49a5115
+            6f94042
+            bbd5aec
+            849ca8c
+            6071a48
+            03fd2fb
+            95f8be4
+            27956d2
+            7f2847d
+          )
+
+          # SUSFS 2.x non-GKI core + correctness fixes through the 2.2 bump.
+          core=(
+            90c3411026a2a55f96d2dc7046567b20b8b0d18f
+            867a1638a7832bf9a1e0d63a62932a24139ba8ae
+            9c648d040a6264e0a337d50b2e244c39047c76c6
+            eb238aae838743f2da4f675c5164c7e97e198d82
+            1b4f90acba4033f8cdf6b40b2df9a4c5f15d4388
+            c389e1279b263872a4096824dbb92b667bc41f6a
+            74a09f63dba838c872d457822ca6f38ab645c5e5
+            5ad0535b268f74e3db73a9323022e4315b8a2c14
+            883341d66d383753b4e7c0166e1033c21272e780
+            c70572615132919caa23f9b00a72d1b943021787
+            7c6e9ce0c136ee125d78486faeebd31ee162fd45
+            6aeceddf784dbddd0538dc0506c75eb7522a4d43
+            1a7e1a4e7d3847e12da7abe58bc63622e659e315
+            85a5fbc10c053204d76123e9fbda064ea7d912eb
+            f22598112e90c0b72ad08f59df7bf89dbd47ca6f
+            8835c0d45106d400df092eeb9354840c6665741c
+            67f2045956de4e050145f0d3f1ad3ea1d0ba47d0
+            625df5ab4efa301caa14fe82c89b7df0c695f3f3
+            74ed015e7a276169a43ab7e51c64f0f0eaaf292d
+            2e5a748cf3f3fe1c385db26e8fe475267463ff6f
+            bbb6a17411063bf08cf61775c7fce605c87003bd
+            0f0d42d53f300ea7d620d46d175393e5b2cc085a
+            ebdaf2e3db9525b06d8c11bb1946d7313066ba20
+            1bf2ef2b94dbba9d6f3a1632bea7ccc1b928abd3
+            016a0cd1f2fc8fdc420f943a5e27c57af22d7edc
+            8f0dc40daad64df238acf648fe696263e8a76981
+            5605d61a88136a35928147ab8dabcf0bb925fc22
+            fafb3ac30a3e67a5e9381fb6f001e6e59f560af9
+            e9d86a305719542588cadae735d7166cd4aeeb55
+            b3d2d7c84abbc657c5b7db448f1110b989969d68
+            2e097e57c2c0ebba2f9e4fec2d0a713377949aa7
+          )
+
+          apply_one() {
+            local sha="$1" kind="$2"
+            local p="/tmp/${sha}.patch"
+            if ! curl -fsSL --retry 3 "https://github.com/FlopKernel-Series/flop_trinket-mi_kernel/commit/${sha}.patch" -o "$p"; then
+              echo "RESULT ${kind} ${sha} FETCH_FAIL"
+              return 0
+            fi
+            if git apply --check "$p" >/tmp/check.log 2>&1; then
+              git apply "$p"
+              git add -A
+              git commit -q -m "probe: ${sha}" || true
+              echo "RESULT ${kind} ${sha} CLEAN"
+            else
+              # Some prerequisite patches may already be present in OpenELA 4.14.356.
+              if git apply --reverse --check "$p" >/dev/null 2>&1; then
+                echo "RESULT ${kind} ${sha} ALREADY_PRESENT"
+              else
+                echo "RESULT ${kind} ${sha} CONFLICT"
+                sed -n '1,20p' /tmp/check.log | sed 's/^/  /'
+              fi
+            fi
+          }
+
+          git config user.name gxt-probe
+          git config user.email gxt-probe@invalid
+          for s in "${prereq[@]}"; do apply_one "$s" prereq; done
+          for s in "${core[@]}"; do apply_one "$s" core; done
+
+          echo '=== FINAL SUSFS VERSION IF PRESENT ==='
+          grep '^#define SUSFS_VERSION' include/linux/susfs.h || true
+          echo '=== WORKTREE ==='
+          git status --short | head -n 100
