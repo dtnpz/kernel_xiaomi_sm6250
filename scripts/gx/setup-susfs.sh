@@ -9,16 +9,20 @@ source gx-sources.lock
 root_kind="${1:?usage: setup-susfs.sh <xxksu|ksun>}"
 case "$root_kind" in
   ksun) KSU_DIR="$ROOT_DIR/KernelSU-Next" ;;
-  xxksu)
-    echo "[N45] SUSFS v2.2.0 xxKSU glue is intentionally handled separately; refusing to reuse KSUN glue." >&2
-    exit 3
-    ;;
+  xxksu) KSU_DIR="$ROOT_DIR/KernelSU" ;;
   *) echo "Unsupported SUSFS root kind: $root_kind" >&2; exit 2 ;;
 esac
 
 [[ -d "$KSU_DIR" ]] || { echo "KernelSU source directory missing: $KSU_DIR" >&2; exit 2; }
 
-echo "[N45] applying non-GKI Linux 4.14 SUSFS v2.2.0 backport"
+# The Xiaomi 4.14.357 xxKSU reference carries a small SUSFS adapter for the
+# root core. Transplant only that adapter onto our newer pinned 32602 core;
+# never replace/downgrade the backslashxx tree.
+if [[ "$root_kind" == "xxksu" ]]; then
+  bash scripts/gx/apply-xxksu-susfs-v2-core.sh
+fi
+
+echo "[N45] applying non-GKI Linux 4.14 SUSFS v2.2.0 backport for $root_kind"
 
 PATCH_DIR="$(mktemp -d)"
 trap 'rm -rf "$PATCH_DIR"' EXIT
@@ -178,19 +182,23 @@ for sha in "${SUSFS_SERIES[@]}"; do
   apply_vendor_patch "$SUSFS_REPO" "$sha"
 done
 
+# The final adapter adds N45's SUS_MAP/KSTAT proc behavior and KSUN manual-hook
+# blocks. The latter are CONFIG_KSU_MANUAL_HOOK-gated and compile completely
+# out for xxKSU, which keeps its 4.14-optimized syscall-table interception.
 python3 scripts/gx/apply-susfs-v2-n45-final-hooks.py
 
-python3 - arch/arm64/configs/vendor/miatoll-perf_defconfig <<'PY'
+python3 - arch/arm64/configs/vendor/miatoll-perf_defconfig "$root_kind" <<'PY'
 from pathlib import Path
 import re, sys
 p = Path(sys.argv[1])
+root_kind = sys.argv[2]
 s = p.read_text()
 settings = {
     'KSU': 'y',
-    'KSU_MANUAL_HOOK': 'y',
-    'KSU_KPROBES_HOOK': 'n',
     'KSU_SUSFS': 'y',
-    'KSU_SUSFS_SUS_PATH': 'y',
+    # SUS_PATH is explicitly marked NOT recommended upstream and adds pathname
+    # hot-path overhead. Keep it off in the stability-first release matrix.
+    'KSU_SUSFS_SUS_PATH': 'n',
     'KSU_SUSFS_SUS_MOUNT': 'y',
     'KSU_SUSFS_SUS_KSTAT': 'y',
     'KSU_SUSFS_TRY_UMOUNT': 'y',
@@ -198,11 +206,30 @@ settings = {
     'KSU_SUSFS_ENABLE_LOG': 'n',
     'KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS': 'y',
     'KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG': 'y',
-    'KSU_SUSFS_OPEN_REDIRECT': 'y',
+    # OPEN_REDIRECT is experimental; omit it from the smooth/stable baseline.
+    'KSU_SUSFS_OPEN_REDIRECT': 'n',
     'KSU_SUSFS_SUS_MAP': 'y',
-    # Post-v2.2 experimental feature; keep off for the stable 10-variant set.
-    'KSU_SUSFS_SUS_MEMFD': 'n',
 }
+if root_kind == 'ksun':
+    settings.update({
+        'KSU_MANUAL_HOOK': 'y',
+        'KSU_KPROBES_HOOK': 'n',
+        'KSU_SUSFS_SUS_MEMFD': 'n',
+    })
+elif root_kind == 'xxksu':
+    # backslashxx explicitly recommends the direct syscall-table path on
+    # Linux 3.0-4.14. Do not force the KSUN manual-hook ABI into xxKSU.
+    settings.update({
+        'KSU_TAMPER_SYSCALL_TABLE': 'y',
+        'KSU_HACK_ARM64_BRANCH_LINK': 'n',
+        'KSU_KPROBES_KSUD': 'n',
+        'KSU_LSM_SECURITY_HOOKS': 'y',
+    })
+    for key in ('KSU_MANUAL_HOOK', 'KSU_KPROBES_HOOK'):
+        s = re.sub(rf'^(?:CONFIG_{key}=.*|# CONFIG_{key} is not set)\n?', '', s, flags=re.M)
+else:
+    raise SystemExit(f'unsupported root kind: {root_kind}')
+
 for key, value in settings.items():
     pat = re.compile(rf'^(?:CONFIG_{re.escape(key)}=.*|# CONFIG_{re.escape(key)} is not set)$', re.M)
     line = f'CONFIG_{key}={value}' if value != 'n' else f'# CONFIG_{key} is not set'
@@ -218,11 +245,20 @@ PY
 DEFCONFIG=arch/arm64/configs/vendor/miatoll-perf_defconfig
 grep -Fxq 'CONFIG_KSU_SUSFS=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_SUSFS_SUS_MAP=y' "$DEFCONFIG"
-grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
+grep -Fxq '# CONFIG_KSU_SUSFS_SUS_PATH is not set' "$DEFCONFIG"
+grep -Fxq '# CONFIG_KSU_SUSFS_OPEN_REDIRECT is not set' "$DEFCONFIG"
 [[ -s fs/susfs.c ]]
 [[ -s include/linux/susfs.h ]]
 grep -Fq '#define SUSFS_VERSION "v2.2.0"' include/linux/susfs.h
 grep -Fq 'config KSU_SUSFS_SUS_MAP' "$KSU_DIR/kernel/Kconfig"
-grep -Fq 'ksu_handle_sys_reboot' kernel/reboot.c
 
-echo "[N45] SUSFS v2.2.0 Xiaomi 4.14 layer applied; final N45 hooks retained"
+if [[ "$root_kind" == "ksun" ]]; then
+  grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
+  grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
+  grep -Fq 'ksu_handle_sys_reboot' kernel/reboot.c
+else
+  grep -Fxq 'CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' "$DEFCONFIG"
+  ! grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
+fi
+
+echo "[N45] SUSFS v2.2.0 Xiaomi 4.14 layer applied for $root_kind; stability profile active"

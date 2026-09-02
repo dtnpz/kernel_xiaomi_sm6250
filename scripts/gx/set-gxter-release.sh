@@ -23,7 +23,7 @@ s = m.read_text()
 checks = {
     'VERSION': '4',
     'PATCHLEVEL': '14',
-    'SUBLEVEL': '356',
+    'SUBLEVEL': '357',
 }
 for key, expected in checks.items():
     match = re.search(rf'^{key}\s*=\s*(\S+)\s*$', s, re.M)
@@ -44,5 +44,5 @@ else:
     s = line + '\n' + s
 p.write_text(s)
 
-print(f'[gxter] kernel release: 4.14.356-Gxter-{variant}-FuckMiatollCommu')
+print(f'[gxter] kernel release: 4.14.357-Gxter-{variant}-FuckMiatollCommu')
 PY

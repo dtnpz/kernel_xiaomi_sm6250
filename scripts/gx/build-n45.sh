@@ -126,8 +126,41 @@ cp "$DTB" "$AK3_WORK/dtb"
     -x 'README*' 'LICENSE*' '*.git*' '*placeholder*'
 )
 
-sha256sum "$ARTIFACT_DIR/$GX_ZIP" > "$ARTIFACT_DIR/$GX_ZIP.sha256"
-md5sum "$ARTIFACT_DIR/$GX_ZIP" > "$ARTIFACT_DIR/$GX_ZIP.md5"
+ZIP_PATH="$ARTIFACT_DIR/$GX_ZIP"
+if [[ "$GX_ZIP" != *"4.14.357"* ]]; then
+  echo "[N45] refusing stale/non-357 release filename: $GX_ZIP" >&2
+  exit 4
+fi
 
-printf '[N45] built %s\n' "$ARTIFACT_DIR/$GX_ZIP"
-cat "$ARTIFACT_DIR/$GX_ZIP.sha256"
+# A successful compile is not enough: prove that the delivered archive is
+# readable and contains the complete AnyKernel flash payload with non-empty
+# kernel/DTB/DTBO and recovery installer entries.
+unzip -tqq "$ZIP_PATH"
+ZIP_LIST="$(zipinfo -1 "$ZIP_PATH")"
+required_entries=(
+  anykernel.sh
+  tools/ak3-core.sh
+  Image.gz
+  dtbo.img
+  dtb
+  META-INF/com/google/android/update-binary
+  META-INF/com/google/android/updater-script
+)
+for entry in "${required_entries[@]}"; do
+  if ! grep -Fxq "$entry" <<<"$ZIP_LIST"; then
+    echo "[N45] flash ZIP missing required entry: $entry" >&2
+    exit 5
+  fi
+  bytes="$(unzip -p "$ZIP_PATH" "$entry" | wc -c)"
+  if [[ "$bytes" -le 0 ]]; then
+    echo "[N45] flash ZIP contains empty required entry: $entry" >&2
+    exit 6
+  fi
+done
+
+echo "[N45] flash ZIP validation passed: $GX_ZIP"
+sha256sum "$ZIP_PATH" > "$ZIP_PATH.sha256"
+md5sum "$ZIP_PATH" > "$ZIP_PATH.md5"
+
+printf '[N45] built %s\n' "$ZIP_PATH"
+cat "$ZIP_PATH.sha256"
