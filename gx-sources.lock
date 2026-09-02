@@ -7,9 +7,13 @@ VELVET_BRANCH=non-ksu
 VELVET_BASE_COMMIT=b2bd9c524da082540e0f2f0216bfa15eee1c8614
 VELVET_OPENELA_349_PARENT=e4913de9177c1394c3b2b73c86f5e7d9d9614388
 
-OPENELA_REPO=https://github.com/openela/kernel-lts.git
-OPENELA_TARGET_TAG=v4.14.356-openela
-OPENELA_TARGET_COMMIT=a76b6a6556353484f6f29572989cd37b6cff90cc
+# N45 source starts from the exact 4.14.356 OpenELA point already merged in the
+# known-good tree, then scripts/gx/apply-openela-4.14.357.sh applies the complete
+# six-commit eLTS delta. Keep both pins so the upgrade is reproducible.
+OPENELA_BASE_TAG=v4.14.356-openela
+OPENELA_BASE_COMMIT=a76b6a6556353484f6f29572989cd37b6cff90cc
+OPENELA_TARGET_TAG=v4.14.357-openela
+OPENELA_TARGET_COMMIT=1e6347375d088ecc896aabb067131d0f9e3c0575
 
 # backslashxx KernelSU v3.3.0-2
 XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
@@ -27,8 +31,10 @@ KSUN_SUSFS_REPO=https://github.com/sidex15/KernelSU-Next.git
 KSUN_SUSFS_BRANCH=legacy-susfs-v2
 KSUN_SUSFS_COMMIT=f110cddc07e27b21ad77c6c31261660efb25dce4
 
-# Linux 4.14 SUSFS v2.2.0 backport reference.  setup-susfs.sh applies only
-# the explicitly pinned SUSFS/prerequisite commits from this repository.
+# Linux 4.14 SUSFS v2.2.0 compatibility references.
 SUSFS_414_BACKPORT_REPO=https://github.com/sidex15/android_kernel_lge_sm8150.git
 SUSFS_414_BACKPORT_VERSION=v2.2.0
 SUSFS_414_BACKPORT_HEAD=0a5b29d63113137f481d2636af5e943631b76687
+SUSFS_XIAOMI_414_REPO=https://github.com/FlopKernel-Series/flop_trinket-mi_kernel.git
+SUSFS_XIAOMI_414_V220_HEAD=b3d2d7c84abbc657c5b7db448f1110b989969d68
+XXKSU_SUSFS_V220_ADAPTER=2438eed1424e0c228612a0d55e3f85dc77d22b38
