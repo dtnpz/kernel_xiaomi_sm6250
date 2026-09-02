@@ -46,10 +46,16 @@ case "$GX_ROOT" in
   ksun) bash scripts/gx/setup-ksun.sh ;;
 esac
 
-# Remove stale Velvet callbacks before either the plain modern KSU path or the
-# SUSFS-v2 manual-hook patch adds its own current hooks.
+# Remove stale Velvet callbacks before either the modern direct-hook path or
+# the SUSFS-v2 manual-hook patch installs the current callback ABI.
 if [[ "$GX_ROOT" != none ]]; then
   python3 scripts/gx/strip-modern-ksu-legacy-vendor-hooks.py
+fi
+
+# KSUN no-SUSFS still uses the non-kprobe/manual-hook engine on N45.  Install
+# only the KernelSU hook surface here; do not add any SUSFS source or features.
+if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
+  python3 scripts/gx/apply-ksun-manual-hooks.py
 fi
 
 if [[ "$GX_SUSFS" == 1 ]]; then
