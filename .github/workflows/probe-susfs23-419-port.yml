@@ -1,0 +1,37 @@
+name: Probe SUSFS 2.3 4.19-to-4.14 port
+
+on:
+  push:
+    branches:
+      - work-n45-integrations-v2
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout known-good xxKSU NBP no-SUSFS baseline
+        uses: actions/checkout@v4
+        with:
+          ref: miatoll-nexus45-nbp-xxksu-nosusfs
+          fetch-depth: 0
+      - name: Test v2.3.0 4.19 backport application
+        run: |
+          set -uo pipefail
+          git remote add susfs419 https://github.com/notkernel-oss/not_samsung.sm8250-4.19.git
+          git fetch -q --depth 1 susfs419 380c5687f56bae41f59d006e4eb0e842096d39c9
+          git show --format= FETCH_HEAD > /tmp/susfs23-419.patch
+          echo '=== PATCH FILES ==='
+          grep '^diff --git ' /tmp/susfs23-419.patch
+          echo '=== DRY RUN ==='
+          set +e
+          patch --batch --dry-run -p1 < /tmp/susfs23-419.patch 2>&1 | tee /tmp/dry.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "PATCH_RC=$rc"
+          echo '=== FAIL SUMMARY ==='
+          grep -E 'FAILED|malformed|Reversed|can.t find file|Hunk #[0-9]+ succeeded' /tmp/dry.log || true
+          exit 0
