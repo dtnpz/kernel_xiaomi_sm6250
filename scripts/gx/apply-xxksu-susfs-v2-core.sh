@@ -33,8 +33,8 @@ grep -Fqi "$REF_SHA" "$RAW" || {
 # xxKSU 32602 also made try_umount() static inline after the reference adapter
 # was authored. Preserve that newer declaration for the normal path, while the
 # SUSFS TRY_UMOUNT branch still exports a plain global void function exactly as
-# required by the v2 adapter. This is a narrow 32602 context adaptation, not a
-# downgrade of the pinned xxKSU core.
+# required by the v2 adapter. Match the actual hunk context instead of counting
+# every textual occurrence in the mail-formatted commit patch.
 python3 - "$RAW" "$PATCH" "$KSU_DIR/kernel/feature/kernel_umount.c" <<'PY'
 from pathlib import Path
 import sys
@@ -47,15 +47,18 @@ s = s.replace('+++ drivers/xxksu/', '+++ KernelSU/')
 
 current = umount_file.read_text()
 new_anchor = 'static inline void try_umount(const char *mnt, int flags)'
-old_patch_anchor = ' static void try_umount(const char *mnt, int flags)\n'
-new_patch_anchor = ' static inline void try_umount(const char *mnt, int flags)\n'
+old_hunk = (
+    '+#if !defined(CONFIG_KSU_SUSFS) || !defined(CONFIG_KSU_SUSFS_TRY_UMOUNT)\n'
+    ' static void try_umount(const char *mnt, int flags)\n'
+)
+new_hunk = (
+    '+#if !defined(CONFIG_KSU_SUSFS) || !defined(CONFIG_KSU_SUSFS_TRY_UMOUNT)\n'
+    ' static inline void try_umount(const char *mnt, int flags)\n'
+)
 if new_anchor in current:
-    count = s.count(old_patch_anchor)
-    if count != 1:
-        raise SystemExit(
-            f'expected exactly one reference try_umount declaration, found {count}'
-        )
-    s = s.replace(old_patch_anchor, new_patch_anchor, 1)
+    if old_hunk not in s:
+        raise SystemExit('reference try_umount hunk not found; refusing to guess')
+    s = s.replace(old_hunk, new_hunk, 1)
     print('[N45][xxKSU-SUSFS] adapted try_umount declaration for xxKSU 32602')
 elif 'static void try_umount(const char *mnt, int flags)' not in current:
     raise SystemExit('unexpected xxKSU try_umount declaration; refusing to guess')
