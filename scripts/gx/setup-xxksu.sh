@@ -34,6 +34,9 @@ settings = {
     'KSU_HACK_ARM64_BRANCH_LINK': 'n',
     'KSU_KPROBES_KSUD': 'n',
     'KSU_LSM_SECURITY_HOOKS': 'y',
+    # Keep the first packages.list throne scan off the system_server rename path.
+    # xxKSU 32602 otherwise runs the first track_throne() synchronously.
+    'KSU_THRONE_TRACKER_ALWAYS_THREADED': 'y',
 }
 
 for key, value in settings.items():
@@ -55,5 +58,6 @@ grep -Fxq 'CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' "$DEFCONFIG"
 grep -Fxq '# CONFIG_KSU_HACK_ARM64_BRANCH_LINK is not set' "$DEFCONFIG"
 grep -Fxq '# CONFIG_KSU_KPROBES_KSUD is not set' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_LSM_SECURITY_HOOKS=y' "$DEFCONFIG"
+grep -Fxq 'CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y' "$DEFCONFIG"
 
 echo "[N45] backslashxx KernelSU integration ready"
