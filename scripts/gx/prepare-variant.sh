@@ -18,9 +18,7 @@ case "$GX_SUSFS" in 0|1) ;; *) echo "GX_SUSFS must be 0/1" >&2; exit 2 ;; esac
 case "$GX_BP" in 0|1) ;; *) echo "GX_BP must be 0/1" >&2; exit 2 ;; esac
 [[ "$GX_ROOT" != none || "$GX_SUSFS" != 1 ]] || { echo "SUSFS is forbidden on NONKSU variants." >&2; exit 2; }
 
-# Keep #180's runtime swappiness setting unchanged while isolating the next
-# memory-pressure variable. Device logs confirm swappiness is really 10, yet
-# direct reclaim and repeated Simple LMK bursts still coincide with stalls.
+# Keep #183's proven runtime swappiness unchanged.
 python3 - <<'PY'
 from pathlib import Path
 p = Path('mm/vmscan.c')
@@ -28,15 +26,40 @@ s = p.read_text()
 if 'int vm_swappiness = 10;' not in s:
     raise SystemExit('Unexpected vm_swappiness baseline; expected 10')
 if 'int vm_swappiness = 60;' in s:
-    raise SystemExit('N45 swappiness override to 60 is still present')
+    raise SystemExit('Rejected swappiness=60 experiment is still present')
 PY
 
-# #181 isolation test: keep Simple LMK trigger/minfree/victim semantics intact,
-# but stop its control workers from running at RR99/RR98 on performance CPUs.
-# Victim exit threads remain RR1 so memory is still returned promptly.
+# Keep #183's de-RT Simple LMK control workers exactly unchanged.
 python3 scripts/gx/adapt-simple-lmk-scheduler.py
 
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
+
+# Isolation test after #185 runtime feedback: #185 changed both MINFREE and
+# reclaim timeout at once and the user's input/typing lag disappeared. Start
+# from #183 and change only the per-reclaim target so we can identify whether
+# reduced kill/reap pressure is the useful part without carrying the 200 ms
+# timeout into this build.
+python3 - "$defconfig_path" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+s = p.read_text()
+minfree = re.compile(r'^CONFIG_ANDROID_SIMPLE_LMK_MINFREE=.*$', re.M)
+timeout = re.compile(r'^CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC=.*$', re.M)
+if not minfree.search(s):
+    raise SystemExit('Missing CONFIG_ANDROID_SIMPLE_LMK_MINFREE')
+if not timeout.search(s):
+    raise SystemExit('Missing CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC')
+s = minfree.sub('CONFIG_ANDROID_SIMPLE_LMK_MINFREE=128', s, count=1)
+if 'CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC=100' not in s:
+    raise SystemExit('Unexpected Simple LMK timeout; this test must keep 100 ms')
+p.write_text(s)
+print('[N45] #183-based isolation: Simple LMK MINFREE 245 -> 128 MiB; timeout stays 100 ms')
+PY
+
+grep -Fxq 'CONFIG_ANDROID_SIMPLE_LMK_MINFREE=128' "$defconfig_path"
+grep -Fxq 'CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC=100' "$defconfig_path"
+
 python3 - "$defconfig_path" "$GX_VARIANT" <<'PY'
 from pathlib import Path
 import re, sys
