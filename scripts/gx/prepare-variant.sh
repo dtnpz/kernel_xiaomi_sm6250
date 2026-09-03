@@ -18,14 +18,14 @@ case "$GX_SUSFS" in 0|1) ;; *) echo "GX_SUSFS must be 0/1" >&2; exit 2 ;; esac
 case "$GX_BP" in 0|1) ;; *) echo "GX_BP must be 0/1" >&2; exit 2 ;; esac
 [[ "$GX_ROOT" != none || "$GX_SUSFS" != 1 ]] || { echo "SUSFS is forbidden on NONKSU variants." >&2; exit 2; }
 
+# Keep the proven N45 baseline memory policy for this control build.  Do not
+# mutate vm_swappiness here; only verify the source still defaults to 10.
 python3 - <<'PY'
 from pathlib import Path
 p = Path('mm/vmscan.c')
 s = p.read_text()
-old, new = 'int vm_swappiness = 10;', 'int vm_swappiness = 60;'
-if old in s: s = s.replace(old, new, 1)
-elif new not in s: raise SystemExit('Unexpected vm_swappiness source state')
-p.write_text(s)
+if 'int vm_swappiness = 10;' not in s:
+    raise SystemExit('Unexpected vm_swappiness source state; expected N45 baseline 10')
 PY
 
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
