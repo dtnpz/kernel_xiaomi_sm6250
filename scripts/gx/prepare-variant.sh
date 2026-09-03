@@ -18,22 +18,29 @@ case "$GX_SUSFS" in 0|1) ;; *) echo "GX_SUSFS must be 0/1" >&2; exit 2 ;; esac
 case "$GX_BP" in 0|1) ;; *) echo "GX_BP must be 0/1" >&2; exit 2 ;; esac
 [[ "$GX_ROOT" != none || "$GX_SUSFS" != 1 ]] || { echo "SUSFS is forbidden on NONKSU variants." >&2; exit 2; }
 
-# Keep #180's runtime swappiness setting unchanged while isolating the next
-# memory-pressure variable. Device logs confirm swappiness is really 10, yet
-# direct reclaim and repeated Simple LMK bursts still coincide with stalls.
+# #184 isolation test: #183 substantially reduced LMK bursts after moving its
+# control workers off RR99/RR98, but runtime still shows high file workingset
+# refaults/major faults while a 4 GiB zram pool is lightly read back. Use the
+# available compressed swap more readily so foreground app code/file cache is
+# less likely to be discarded under reclaim. Keep every #183 LMK change intact.
 python3 - <<'PY'
 from pathlib import Path
 p = Path('mm/vmscan.c')
 s = p.read_text()
-if 'int vm_swappiness = 10;' not in s:
-    raise SystemExit('Unexpected vm_swappiness baseline; expected 10')
-if 'int vm_swappiness = 60;' in s:
-    raise SystemExit('N45 swappiness override to 60 is still present')
+old = 'int vm_swappiness = 10;'
+new = 'int vm_swappiness = 60;'
+if old not in s:
+    raise SystemExit('Unexpected vm_swappiness baseline; expected 10 before #184 test')
+s = s.replace(old, new, 1)
+if s.count(new) != 1:
+    raise SystemExit('Unexpected vm_swappiness=60 count after #184 adaptation')
+p.write_text(s)
+print('[N45] #184 set vm_swappiness 10 -> 60 while retaining de-RT Simple LMK')
 PY
 
-# #181 isolation test: keep Simple LMK trigger/minfree/victim semantics intact,
-# but stop its control workers from running at RR99/RR98 on performance CPUs.
-# Victim exit threads remain RR1 so memory is still returned promptly.
+# Keep Simple LMK trigger/minfree/victim semantics intact, but stop its control
+# workers from running at RR99/RR98 on performance CPUs. Victim exit threads
+# remain RR1 so memory is still returned promptly.
 python3 scripts/gx/adapt-simple-lmk-scheduler.py
 
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
