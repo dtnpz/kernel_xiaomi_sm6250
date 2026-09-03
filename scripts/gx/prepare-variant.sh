@@ -18,14 +18,18 @@ case "$GX_SUSFS" in 0|1) ;; *) echo "GX_SUSFS must be 0/1" >&2; exit 2 ;; esac
 case "$GX_BP" in 0|1) ;; *) echo "GX_BP must be 0/1" >&2; exit 2 ;; esac
 [[ "$GX_ROOT" != none || "$GX_SUSFS" != 1 ]] || { echo "SUSFS is forbidden on NONKSU variants." >&2; exit 2; }
 
+# Runtime baseline test: keep the kernel's proven Miatoll default swappiness.
+# The N45 matrix previously forced 10 -> 60 here; device logs from #179 show
+# heavy reclaim/LMK activity, so isolate that policy change before touching
+# Simple LMK itself (whose source/config match the known-good r1 baseline).
 python3 - <<'PY'
 from pathlib import Path
 p = Path('mm/vmscan.c')
 s = p.read_text()
-old, new = 'int vm_swappiness = 10;', 'int vm_swappiness = 60;'
-if old in s: s = s.replace(old, new, 1)
-elif new not in s: raise SystemExit('Unexpected vm_swappiness source state')
-p.write_text(s)
+if 'int vm_swappiness = 10;' not in s:
+    raise SystemExit('Unexpected vm_swappiness baseline; expected 10')
+if 'int vm_swappiness = 60;' in s:
+    raise SystemExit('N45 swappiness override to 60 is still present')
 PY
 
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
