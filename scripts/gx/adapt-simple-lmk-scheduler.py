@@ -15,11 +15,12 @@ new_reclaim = '''static int simple_lmk_reclaim_thread(void *data)
 	/*
 	 * N45 runtime adaptation:
 	 * vmpressure=100 can arrive in bursts while Android is starting heavy
-	 * apps. Running the LMK control thread at RR99 can starve system_server,
-	 * Binder and UI work on the performance CPUs while victims are scanned.
-	 * Keep the worker responsive, but let normal foreground work preempt it.
+	 * apps. #183 proved that removing RR99 prevents the worst starvation,
+	 * but its -5 nice level can still outrank normal system_server/Binder/UI
+	 * work while reclaim is active. Run the control worker at normal CFS
+	 * priority; victim exit threads remain RR1 and still release memory fast.
 	 */
-	set_user_nice(current, -5);
+	set_user_nice(current, 0);
 	set_freezable();
 '''
 
@@ -31,8 +32,8 @@ old_reaper = '''static int simple_lmk_reaper_thread(void *data)
 '''
 new_reaper = '''static int simple_lmk_reaper_thread(void *data)
 {
-	/* Keep reaping below the reclaim worker without using RT scheduling. */
-	set_user_nice(current, -4);
+	/* Reaping is background work; keep it just below the reclaim worker. */
+	set_user_nice(current, 1);
 	set_freezable();
 '''
 
@@ -45,8 +46,8 @@ s = s.replace(old_reclaim, new_reclaim, 1)
 s = s.replace(old_reaper, new_reaper, 1)
 
 checks = [
-    "set_user_nice(current, -5);",
-    "set_user_nice(current, -4);",
+    "set_user_nice(current, 0);",
+    "set_user_nice(current, 1);",
     "set_task_rt_prio(t, 1);",
     "if (pressure == 100)",
 ]
@@ -60,4 +61,4 @@ if "set_task_rt_prio(current, MAX_RT_PRIO - 2);" in s:
     raise SystemExit("simple_lmk reaper thread still uses RR98")
 
 p.write_text(s)
-print("[N45] adapted Simple LMK control threads from RT99/98 to CFS nice -5/-4")
+print("[N45] adapted Simple LMK control threads from RT99/98 to CFS nice 0/+1")
