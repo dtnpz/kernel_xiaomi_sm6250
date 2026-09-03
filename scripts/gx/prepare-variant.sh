@@ -18,32 +18,50 @@ case "$GX_SUSFS" in 0|1) ;; *) echo "GX_SUSFS must be 0/1" >&2; exit 2 ;; esac
 case "$GX_BP" in 0|1) ;; *) echo "GX_BP must be 0/1" >&2; exit 2 ;; esac
 [[ "$GX_ROOT" != none || "$GX_SUSFS" != 1 ]] || { echo "SUSFS is forbidden on NONKSU variants." >&2; exit 2; }
 
-# #184 isolation test: #183 substantially reduced LMK bursts after moving its
-# control workers off RR99/RR98, but runtime still shows high file workingset
-# refaults/major faults while a 4 GiB zram pool is lightly read back. Use the
-# available compressed swap more readily so foreground app code/file cache is
-# less likely to be discarded under reclaim. Keep every #183 LMK change intact.
+# #185: remove the failed #184 swappiness experiment. Runtime logs show
+# swappiness=60 drove substantially more swap/reclaim and severe vmpressure
+# bursts; keep the kernel's conservative 10 while fixing LMK policy itself.
 python3 - <<'PY'
 from pathlib import Path
 p = Path('mm/vmscan.c')
 s = p.read_text()
-old = 'int vm_swappiness = 10;'
-new = 'int vm_swappiness = 60;'
-if old not in s:
-    raise SystemExit('Unexpected vm_swappiness baseline; expected 10 before #184 test')
-s = s.replace(old, new, 1)
-if s.count(new) != 1:
-    raise SystemExit('Unexpected vm_swappiness=60 count after #184 adaptation')
-p.write_text(s)
-print('[N45] #184 set vm_swappiness 10 -> 60 while retaining de-RT Simple LMK')
+if 'int vm_swappiness = 10;' not in s:
+    raise SystemExit('Unexpected vm_swappiness baseline; expected 10 for #185')
+if 'int vm_swappiness = 60;' in s:
+    raise SystemExit('Failed #184 swappiness=60 experiment is still present')
+print('[N45] #185 keeps vm_swappiness=10 after rejecting #184 swappiness=60')
 PY
 
-# Keep Simple LMK trigger/minfree/victim semantics intact, but stop its control
-# workers from running at RR99/RR98 on performance CPUs. Victim exit threads
-# remain RR1 so memory is still returned promptly.
+# Keep the #183/#184 de-RT scheduler adaptation: the LMK control workers must
+# not starve system_server/Binder/UI at RR99/RR98 during vmpressure bursts.
 python3 scripts/gx/adapt-simple-lmk-scheduler.py
 
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
+
+# N45 had tuned Simple LMK much more aggressively than the driver's linux-4.14
+# defaults (245 MiB / 100 ms versus upstream 128 MiB / 200 ms). #184 logs show
+# repeated reclaim bursts eventually killing adj 100/200 processes including
+# the launcher and telephony-related services. Restore the upstream 4.14 policy
+# before adding any custom kill floor or other local heuristics.
+python3 - "$defconfig_path" <<'PY'
+from pathlib import Path
+import re, sys
+p = Path(sys.argv[1])
+s = p.read_text()
+settings = {
+    'ANDROID_SIMPLE_LMK_MINFREE': '128',
+    'ANDROID_SIMPLE_LMK_TIMEOUT_MSEC': '200',
+}
+for key, value in settings.items():
+    pat = re.compile(rf'^CONFIG_{re.escape(key)}=.*$', re.M)
+    m = pat.search(s)
+    if not m:
+        raise SystemExit(f'Missing CONFIG_{key} in defconfig')
+    s = pat.sub(f'CONFIG_{key}={value}', s, count=1)
+p.write_text(s)
+print('[N45] #185 restored Simple LMK linux-4.14 policy: MINFREE=128 MiB TIMEOUT=200 ms')
+PY
+
 python3 - "$defconfig_path" "$GX_VARIANT" <<'PY'
 from pathlib import Path
 import re, sys
@@ -53,6 +71,9 @@ pat = re.compile(r'^CONFIG_LOCALVERSION=.*$', re.M)
 s = pat.sub(line, s, count=1) if pat.search(s) else line + '\n' + s
 p.write_text(s)
 PY
+
+grep -Fxq 'CONFIG_ANDROID_SIMPLE_LMK_MINFREE=128' "$defconfig_path"
+grep -Fxq 'CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC=200' "$defconfig_path"
 
 if [[ "$GX_BP" == 1 ]]; then bash scripts/gx/apply-bp510.sh; fi
 case "$GX_ROOT" in
@@ -67,7 +88,7 @@ if [[ "$GX_ROOT" != none ]]; then
   python3 scripts/gx/strip-modern-ksu-legacy-vendor-hooks.py
 fi
 
-# KSUN no-SUSFS still uses the non-kprobe/manual-hook engine on N45.  Install
+# KSUN no-SUSFS still uses the non-kprobe/manual-hook engine on N45. Install
 # only the KernelSU hook surface here; do not add any SUSFS source or features.
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
   python3 scripts/gx/apply-ksun-manual-hooks.py
