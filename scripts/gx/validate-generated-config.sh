@@ -36,8 +36,21 @@ case "${GX_ROOT:-none}" in
     ;;
   ksun)
     require_y KSU
-    require_y KSU_MANUAL_HOOK
-    forbid_y KSU_KPROBES_HOOK
+    if [[ "${GX_SUSFS:-0}" == "1" ]]; then
+      # The pinned SUSFS compatibility tree is the legacy/manual-hook KSUN
+      # integration and retains its own hook-mode Kconfig symbols.
+      require_y KSU_MANUAL_HOOK
+      forbid_y KSU_KPROBES_HOOK
+    else
+      # Official KernelSU-Next v3.3.0 has no legacy MANUAL_HOOK selector.
+      # Its native syscall/event bridge is gated by KSU -> KPROBES && EXT4_FS,
+      # and this 4.14 tree in turn gates KPROBES behind MODULES.
+      require_y EXT4_FS
+      require_y MODULES
+      require_y KPROBES
+      forbid_y KSU_MANUAL_HOOK
+      forbid_y KSU_KPROBES_HOOK
+    fi
     ;;
   *)
     echo "[N45] unknown GX_ROOT=${GX_ROOT:-}" >&2
@@ -51,9 +64,13 @@ else
   forbid_y KSU_SUSFS
 fi
 
-# Generic Linux kprobe capability/state belongs to the vendor baseline.  It is
-# not a KSU hook-mode selector here; log it for audit but do not globally force
-# it on or off.
-grep -E '^(CONFIG_KPROBES=|# CONFIG_KPROBES is not set|CONFIG_HAVE_KPROBES=)' "$CONFIG" || true
+# Keep the resolved generic kprobe state visible in CI so official KSUN's
+# native-hook dependency can be audited without conflating it with the old
+# KSU-specific KSU_KPROBES_HOOK selector.
+grep -E '^(CONFIG_MODULES=|# CONFIG_MODULES is not set|CONFIG_KPROBES=|# CONFIG_KPROBES is not set|CONFIG_HAVE_KPROBES=|CONFIG_EXT4_FS=)' "$CONFIG" || true
 
-echo "[N45] generated config verified: variant/root/SUSFS match; KSU kprobe hook paths disabled"
+if [[ "${GX_ROOT:-none}" == "ksun" && "${GX_SUSFS:-0}" == "0" ]]; then
+  echo "[N45] generated config verified: official KSUN native hook prerequisites enabled; SUSFS disabled"
+else
+  echo "[N45] generated config verified: variant/root/SUSFS match"
+fi
