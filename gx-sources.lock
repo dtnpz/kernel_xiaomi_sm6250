@@ -20,10 +20,16 @@ XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
 XXKSU_TAG=v3.3.0-2
 XXKSU_COMMIT=1d1cc5cf1981dbf8ce3258ba16e1a6b16d9651f2
 
-# KernelSU-Next manager/release target for non-SUSFS builds.
+# KernelSU-Next stable manager/release reference. Keep this pinned even though
+# Linux 4.14 no-SUSFS uses the upstream legacy branch below.
 KSUN_REPO=https://github.com/KernelSU-Next/KernelSU-Next.git
 KSUN_RELEASE_TAG=v3.3.0
 KSUN_RELEASE_COMMIT=3b18216f71df189ab3d1b1ce0bdb21be1268e771
+
+# Official upstream non-GKI legacy/manual-hook path for kernels below 5.10.
+# Pin the exact post-throne-deadlock-fix head; do not float the branch.
+KSUN_LEGACY_BRANCH=legacy
+KSUN_LEGACY_COMMIT=a54e4fa46c6cc25bcaa055cf14d790194beffed8
 
 # Non-GKI/manual-hook KernelSU-Next tree carrying the SUSFS v2 ABI.
 # Pin the exact commit; do not float legacy-susfs-v2 in release builds.
