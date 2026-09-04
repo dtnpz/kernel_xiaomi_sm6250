@@ -86,6 +86,7 @@ fi
 
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
   python3 scripts/gx/augment-ksun-legacy-manual-hooks.py
+  python3 scripts/gx/extend-ksun-legacy-selinux-hide.py
 fi
 
 if [[ "$GX_SUSFS" == 1 ]]; then
