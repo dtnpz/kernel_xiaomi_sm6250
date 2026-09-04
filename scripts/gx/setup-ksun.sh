@@ -33,6 +33,19 @@ if [[ "$actual" != "$KSU_COMMIT" ]]; then
   exit 4
 fi
 
+# KernelSU-Next legacy's SELinux hide code stores page_address(fake_page) in
+# file->private_data. N45 Linux 4.14 selinuxfs expects a struct page * there and
+# calls page_address() later in sel_read_handle_status/sel_mmap_handle_status.
+# Patch only the no-SUSFS official legacy lane to match this kernel ABI.
+if [[ "${GX_SUSFS:-0}" == "0" ]]; then
+  python3 scripts/gx/fix-ksun-legacy-selinux-status.py
+  grep -Fq 'filp->private_data = data;' "$KSUN_DIR/kernel/feature/selinux_hide.c"
+  if grep -Fq 'filp->private_data = page_address(data);' "$KSUN_DIR/kernel/feature/selinux_hide.c"; then
+    echo "[N45][KSUN-legacy] stale SELinux status fake-page ABI remains" >&2
+    exit 5
+  fi
+fi
+
 ln -s "../KernelSU-Next/kernel" drivers/kernelsu
 if ! grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile; then
   printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
