@@ -34,11 +34,7 @@ python3 scripts/gx/adapt-simple-lmk-scheduler.py
 
 defconfig_path="arch/arm64/configs/$GX_DEFCONFIG"
 
-# Isolation test after #185 runtime feedback: #185 changed both MINFREE and
-# reclaim timeout at once and the user's input/typing lag disappeared. Start
-# from #183 and change only the per-reclaim target so we can identify whether
-# reduced kill/reap pressure is the useful part without carrying the 200 ms
-# timeout into this build.
+# #189 runtime foundation: lower only MINFREE; keep timeout at 100 ms.
 python3 - "$defconfig_path" <<'PY'
 from pathlib import Path
 import re, sys
@@ -52,9 +48,9 @@ if not timeout.search(s):
     raise SystemExit('Missing CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC')
 s = minfree.sub('CONFIG_ANDROID_SIMPLE_LMK_MINFREE=128', s, count=1)
 if 'CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC=100' not in s:
-    raise SystemExit('Unexpected Simple LMK timeout; this test must keep 100 ms')
+    raise SystemExit('Unexpected Simple LMK timeout; #189 foundation must keep 100 ms')
 p.write_text(s)
-print('[N45] #183-based isolation: Simple LMK MINFREE 245 -> 128 MiB; timeout stays 100 ms')
+print('[N45] #189 runtime foundation: Simple LMK MINFREE=128 MiB; timeout=100 ms')
 PY
 
 grep -Fxq 'CONFIG_ANDROID_SIMPLE_LMK_MINFREE=128' "$defconfig_path"
@@ -77,17 +73,16 @@ case "$GX_ROOT" in
   ksun) bash scripts/gx/setup-ksun.sh ;;
 esac
 
-# Remove stale Velvet callbacks before either the modern direct-hook path or
-# the SUSFS-v2 manual-hook patch installs the current callback ABI.
+# Remove stale ProjectVelvet callbacks before the selected modern root core is
+# compiled. xxKSU supplies its own direct path; official KSUN v3.3.0 supplies
+# its syscall-event bridge. SUSFS uses its dedicated compatibility adapter.
 if [[ "$GX_ROOT" != none ]]; then
   python3 scripts/gx/strip-modern-ksu-legacy-vendor-hooks.py
 fi
 
-# KSUN no-SUSFS still uses the non-kprobe/manual-hook engine on N45.  Install
-# only the KernelSU hook surface here; do not add any SUSFS source or features.
-if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
-  python3 scripts/gx/apply-ksun-manual-hooks.py
-fi
+# IMPORTANT: KSUN no-SUSFS now uses the real upstream v3.3.0 native hook
+# engine. Do not apply apply-ksun-manual-hooks.py here: that adapter targets the
+# diverged sidex legacy core and would create a mixed/false 3.3 build.
 
 if [[ "$GX_SUSFS" == 1 ]]; then
   bash scripts/gx/setup-susfs.sh "$GX_ROOT"
