@@ -79,10 +79,10 @@ if susfs:
     set_cfg('KSU_MANUAL_HOOK', 'y')
     set_cfg('KSU_KPROBES_HOOK', 'n')
 else:
-    # Official v3.3.0 uses its own syscall-hook/event-bridge engine and its
-    # Kconfig explicitly depends on KPROBES.  Do not pretend this is the
-    # sidex manual-hook ABI: enable the dependency and remove stale fork-only
-    # options from the inherited defconfig.
+    # Official v3.3.0 uses its native KPROBES-based syscall/event bridge.
+    # This N45 4.14 tree gates KPROBES behind MODULES, so MODULES must be
+    # enabled first or olddefconfig will silently drop KPROBES and then KSU.
+    set_cfg('MODULES', 'y')
     set_cfg('KPROBES', 'y')
     drop_cfg('KSU_MANUAL_HOOK')
     drop_cfg('KSU_KPROBES_HOOK')
@@ -94,6 +94,7 @@ PY
 grep -Fxq 'CONFIG_KSU=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_EXT4_FS=y' "$DEFCONFIG"
 if [[ "${GX_SUSFS:-0}" == "0" ]]; then
+  grep -Fxq 'CONFIG_MODULES=y' "$DEFCONFIG"
   grep -Fxq 'CONFIG_KPROBES=y' "$DEFCONFIG"
   test -f "$KSUN_DIR/kernel/hook/syscall_event_bridge.c"
   test -f "$KSUN_DIR/kernel/hook/arm64/syscall_hook.c"
