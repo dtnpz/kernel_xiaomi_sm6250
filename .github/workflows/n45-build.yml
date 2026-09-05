@@ -13,10 +13,11 @@ on:
       - miatoll-nexus45-bp-ksun
       - miatoll-nexus45-bp-xxksu-nosusfs
       - miatoll-nexus45-bp-ksun-nosusfs
+      - gxterkernl-joyeuse-4.14.357-rev187
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -56,9 +57,6 @@ jobs:
           print('[netbpfload-kver] netbpfload sees real 4.14; bpfloader/netd keep 5.4 spoof')
           PY
 
-          # Keep the build itself unchanged, but always retain and surface the
-          # first real compiler/linker failure instead of losing it when the
-          # wrapper exits under `set -e`.
           set +e
           set -o pipefail
           bash scripts/gx/build-n45.sh 2>&1 | tee "$GITHUB_WORKSPACE/build-compile.log"
@@ -74,6 +72,26 @@ jobs:
             echo '::endgroup::'
           fi
           exit "$status"
+
+      - name: Verify exact rev187 uname and stage release asset
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187'
+        run: |
+          set -euo pipefail
+          expected='Gxterkernl-joyeuse-4.14.357-rev187'
+          actual="$(cat out/include/config/kernel.release)"
+          printf 'kernel.release: %s\n' "$actual"
+          test "$actual" = "$expected"
+          grep -Fxq "#define UTS_RELEASE \"$expected\"" out/include/generated/utsrelease.h
+
+          source .gx-variant
+          src="artifacts/$GX_ZIP"
+          dst="artifacts/${expected}.zip"
+          test -s "$src"
+          cp "$src" "$dst"
+          sha256sum "$dst" > "$dst.sha256"
+          md5sum "$dst" > "$dst.md5"
+          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_variant=%s\ncompiled_uts_release=%s\n' "$GX_VARIANT" "$expected" \
+            > "artifacts/${expected}.release-info.txt"
 
       - name: Upload failed-build diagnostics
         if: always()
@@ -91,3 +109,27 @@ jobs:
           path: artifacts/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish Gxterkernl joyeuse rev187 GitHub Release
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='Gxterkernl-joyeuse-4.14.357-rev187'
+          zip="artifacts/${tag}.zip"
+          test -s "$zip"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to overwrite it." >&2
+            exit 9
+          fi
+          gh release create "$tag" \
+            "$zip" \
+            "$zip.sha256" \
+            "$zip.md5" \
+            "artifacts/${tag}.release-info.txt" \
+            "artifacts/XXKSU330-NOSUSFS-NBP.config" \
+            "artifacts/XXKSU330-NOSUSFS-NBP.build-info.txt" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --notes 'Rebuild of workflow #187 source (2642d3182aa72b7524f85b6f8b9a4b389c0aa23e), the r187 INPUT TEST / lower Simple LMK worker priority for input latency build, with compiled UTS release/uname -r set exactly to Gxterkernl-joyeuse-4.14.357-rev187. Functional kernel source is otherwise based on #187.'
