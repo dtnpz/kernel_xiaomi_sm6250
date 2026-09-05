@@ -1,9 +1,9 @@
-name: Release N45 r3
+name: Release N45 r4 stable subset
 
 on:
   push:
     branches:
-      - release-r3-trigger
+      - release-r4-stable-subset
 
 permissions:
   contents: write
@@ -16,116 +16,114 @@ jobs:
       - name: Checkout release manifest
         uses: actions/checkout@v4
 
-      - name: Verify 10 successful builds and collect assets
+      - name: Verify exact successful builds and collect assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p downloads release-assets
 
-          specs=(
-            '33646111301:miatoll-nexus45-nbp'
-            '33646268390:miatoll-nexus45-nbp-xxksu'
-            '33646285408:miatoll-nexus45-nbp-ksun'
-            '33646301264:miatoll-nexus45-nbp-xxksu-nosusfs'
-            '33646317807:miatoll-nexus45-nbp-ksun-nosusfs'
-            '33646330666:miatoll-nexus45-bp'
-            '33648655838:miatoll-nexus45-bp-xxksu'
-            '33646591451:miatoll-nexus45-bp-ksun'
-            '33646345412:miatoll-nexus45-bp-xxksu-nosusfs'
-            '33646362655:miatoll-nexus45-bp-ksun-nosusfs'
-          )
+          verify_run() {
+            local run_id="$1"
+            local branch="$2"
+            local expected_sha="$3"
+            local artifact="$4"
+            local expected_zip="$5"
 
-          for spec in "${specs[@]}"; do
-            run_id="${spec%%:*}"
-            branch="${spec#*:}"
+            local status conclusion head_branch head_sha
             status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .status)"
             conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .conclusion)"
             head_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_branch)"
-            if [[ "$status" != completed || "$conclusion" != success || "$head_branch" != "$branch" ]]; then
-              echo "Refusing r3: run $run_id expected $branch, got branch=$head_branch status=$status conclusion=$conclusion" >&2
+            head_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_sha)"
+
+            if [[ "$status" != completed || "$conclusion" != success || "$head_branch" != "$branch" || "$head_sha" != "$expected_sha" ]]; then
+              echo "Refusing r4: run $run_id mismatch" >&2
+              echo " expected branch=$branch sha=$expected_sha status=completed conclusion=success" >&2
+              echo " actual   branch=$head_branch sha=$head_sha status=$status conclusion=$conclusion" >&2
               exit 10
             fi
-            gh run download "$run_id" -n "n45-$branch" -D "downloads/$branch"
-          done
 
-          mapfile -t zips < <(find downloads -type f -name 'GXT-Kernel-4.14.357-MIUI-*.zip' | sort)
-          if [[ "${#zips[@]}" -ne 10 ]]; then
-            echo "Refusing r3: expected exactly 10 4.14.357 flash ZIPs, found ${#zips[@]}" >&2
-            printf '%s\n' "${zips[@]}" >&2
-            exit 11
-          fi
+            gh run download "$run_id" -n "$artifact" -D "downloads/$branch"
 
-          for zip in "${zips[@]}"; do
-            unzip -tqq "$zip"
+            local zip="downloads/$branch/$expected_zip"
+            [[ -s "$zip" ]] || { echo "Missing expected ZIP: $zip" >&2; exit 11; }
             [[ -s "$zip.sha256" ]] || { echo "Missing $zip.sha256" >&2; exit 12; }
             [[ -s "$zip.md5" ]] || { echo "Missing $zip.md5" >&2; exit 13; }
 
+            unzip -tqq "$zip"
+
+            local expected_sha256 actual_sha256 expected_md5 actual_md5
             expected_sha256="$(awk 'NR==1 {print $1}' "$zip.sha256")"
             actual_sha256="$(sha256sum "$zip" | awk '{print $1}')"
-            [[ "$expected_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || {
-              echo "Invalid SHA256 sidecar for $zip" >&2
-              exit 16
-            }
-            [[ "${expected_sha256,,}" == "${actual_sha256,,}" ]] || {
-              echo "SHA256 mismatch for $zip" >&2
-              exit 17
-            }
+            [[ "$expected_sha256" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Invalid SHA256 sidecar for $zip" >&2; exit 14; }
+            [[ "${expected_sha256,,}" == "${actual_sha256,,}" ]] || { echo "SHA256 mismatch for $zip" >&2; exit 15; }
 
             expected_md5="$(awk 'NR==1 {print $1}' "$zip.md5")"
             actual_md5="$(md5sum "$zip" | awk '{print $1}')"
-            [[ "$expected_md5" =~ ^[0-9a-fA-F]{32}$ ]] || {
-              echo "Invalid MD5 sidecar for $zip" >&2
-              exit 18
-            }
-            [[ "${expected_md5,,}" == "${actual_md5,,}" ]] || {
-              echo "MD5 mismatch for $zip" >&2
-              exit 19
-            }
+            [[ "$expected_md5" =~ ^[0-9a-fA-F]{32}$ ]] || { echo "Invalid MD5 sidecar for $zip" >&2; exit 16; }
+            [[ "${expected_md5,,}" == "${actual_md5,,}" ]] || { echo "MD5 mismatch for $zip" >&2; exit 17; }
 
             cp "$zip" "$zip.sha256" "$zip.md5" release-assets/
-          done
+          }
 
-          if [[ "$(find release-assets -maxdepth 1 -type f -name '*.zip' | wc -l)" -ne 10 ]]; then
-            echo 'Refusing r3: ZIP asset count changed while collecting' >&2
-            exit 14
-          fi
-          if [[ "$(find release-assets -maxdepth 1 -type f | wc -l)" -ne 30 ]]; then
-            echo 'Refusing r3: expected 30 assets (10 ZIP + 10 SHA256 + 10 MD5)' >&2
-            exit 15
-          fi
+          # NONKSU NBP: latest selected successful control build (#181).
+          verify_run \
+            33734973783 \
+            miatoll-nexus45-nbp \
+            bc02c6694a2ce044865ba7367904cd44a7430564 \
+            n45-miatoll-nexus45-nbp \
+            GXT-Kernel-4.14.357-MIUI-NONKSU-NBP.zip
 
-          echo '[r3] all 10 variants verified'
+          # xxKSU no-SUSFS NBP: exact device-selected build #189. Do not rebuild it.
+          verify_run \
+            33785215106 \
+            miatoll-nexus45-nbp-xxksu-nosusfs \
+            54656973ca177aefbbdb4cda7e4a6523f42fa80e \
+            n45-miatoll-nexus45-nbp-xxksu-nosusfs \
+            GXT-Kernel-4.14.357-MIUI-XXKSU330-NOSUSFS-NBP.zip
 
-      - name: Create GitHub Release r3
+          [[ "$(find release-assets -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 2 ]] || {
+            echo 'Refusing r4: expected exactly 2 ZIP assets' >&2
+            exit 18
+          }
+          [[ "$(find release-assets -maxdepth 1 -type f \( -name '*.zip' -o -name '*.zip.sha256' -o -name '*.zip.md5' \) | wc -l)" -eq 6 ]] || {
+            echo 'Refusing r4: expected 2 ZIPs plus SHA256/MD5 sidecars' >&2
+            exit 19
+          }
+
+          (cd release-assets && sha256sum *.zip | sort > SHA256SUMS)
+          (cd release-assets && md5sum *.zip | sort > MD5SUMS)
+          echo '[r4] exact #189 xxKSU and NONKSU subset verified'
+
+      - name: Create GitHub Release r4
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag='gxt-4.14.357-miatoll-r3'
-          title='GXT-Kernel 4.14.357 — Miatoll r3'
+          tag='gxt-4.14.357-miatoll-r4'
+          title='GXT-Kernel 4.14.357 — Miatoll r4'
+
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag already exists; refusing duplicate." >&2
             exit 20
           fi
+
           cat > release-notes.md <<'EOF'
-          ## GXT-Kernel 4.14.357 — Miatoll r3
+          ## GXT-Kernel 4.14.357 — Miatoll r4
 
-          MIUI Android 12 / Miatoll release matrix built on the OpenELA 4.14.357 eLTS baseline.
+          Focused stable-subset release for MIUI Android 12 / Miatoll on the OpenELA 4.14.357 eLTS baseline.
 
-          ### Variants
-          - NONKSU — NBP / BP
-          - xxKSU 3.3.0-2 + SUSFS v2.2.0 — NBP / BP
-          - KernelSU-Next + SUSFS v2.2.0 — NBP / BP
-          - xxKSU 3.3.0-2 without SUSFS — NBP / BP
-          - KernelSU-Next without SUSFS — NBP / BP
+          ### Included
+          - **NONKSU NBP** — root-free NBP build from successful workflow run #181 (`bc02c6694a2ce044865ba7367904cd44a7430564`).
+          - **xxKSU 3.3.0-2 no-SUSFS NBP** — the exact selected workflow build #189 (`54656973ca177aefbbdb4cda7e4a6523f42fa80e`). The original #189 artifact is reused rather than rebuilt.
 
-          ### Integration notes
-          - SUSFS variants use the stability-first v2.2.0 profile.
-          - KernelSU-Next 4.14 paths use manual/non-kprobe hooks where required.
-          - xxKSU 4.14 uses its direct syscall-table path.
-          - Every uploaded flash ZIP passed compile/link, required-payload validation, `unzip -tqq`, SHA-256, and MD5 verification in CI.
+          ### Intentionally not included
+          - KernelSU-Next variants are paused pending runtime fixes.
+          - SUSFS and BP variants are not part of this focused release.
+
+          Both uploaded flash ZIPs are taken from successful CI runs and re-verified before release with ZIP integrity, SHA-256, and MD5 checks. Aggregate `SHA256SUMS` and `MD5SUMS` are included.
           EOF
+
           gh release create "$tag" release-assets/* \
             --target "$GITHUB_SHA" \
             --title "$title" \
