@@ -4,14 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "$ROOT_DIR"
 
-GX_RELEASE="Gxterkernl-joyeuse-4.14.357-rev187"
+INTERNAL_RELEASE="4.14.357-Gxter-XXKSU330-NOSUSFS-NBP-FuckMiatollCommu/2642d318"
 
 if [[ ! -f .gx-variant ]]; then
   echo "Missing .gx-variant metadata." >&2
   exit 2
 fi
 
-python3 - "$GX_RELEASE" <<'PY'
+python3 - "$INTERNAL_RELEASE" <<'PY'
 from pathlib import Path
 import re, sys
 release = sys.argv[1]
@@ -49,5 +49,5 @@ else:
     s = local + '\n' + s
 p.write_text(s)
 
-print(f'[gxter] exact kernel release: {release}')
+print(f'[gxter] preserved #187 internal kernel release: {release}')
 PY
