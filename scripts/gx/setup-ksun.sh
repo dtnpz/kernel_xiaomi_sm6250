@@ -74,6 +74,165 @@ print("[N45][KSUN-legacy] quieted kernel_umount app-spawn hot-path logging")
 PY
   grep -Fq 'pr_debug("handle umount for uid:' "$KSUN_DIR/kernel/feature/kernel_umount.c"
   grep -Fq 'pr_debug("%s: unmounting:' "$KSUN_DIR/kernel/feature/kernel_umount.c"
+
+  # The pinned legacy allowlist does an O(n) RCU list walk in
+  # ksu_get_app_profile(), and ksu_uid_should_umount() calls it from the zygote
+  # app-spawn path. Keep the legacy list for ABI/persistence ordering, but add a
+  # secondary UID hash index so hot-path profile lookup only scans one bucket.
+  # This mirrors the direction of upstream's newer hash-table allowlist without
+  # importing its much larger current_uid/curr_uid ABI refactor.
+  python3 - "$KSUN_DIR/kernel/policy/allowlist.c" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+
+def replace_once(old: str, new: str, label: str) -> None:
+    global s
+    if old not in s:
+        raise SystemExit(f"allowlist hash patch anchor missing ({label})")
+    s = s.replace(old, new, 1)
+
+replace_once(
+    '#include <linux/list.h>\n',
+    '#include <linux/list.h>\n#include <linux/hashtable.h>\n',
+    'hashtable include',
+)
+
+replace_once(
+    'struct perm_data {\n'
+    '    struct list_head list;\n'
+    '    struct rcu_head rcu;\n'
+    '    struct app_profile profile;\n'
+    '};\n',
+    'struct perm_data {\n'
+    '    struct list_head list;\n'
+    '    struct hlist_node uid_hash;\n'
+    '    struct rcu_head rcu;\n'
+    '    struct app_profile profile;\n'
+    '};\n',
+    'perm_data hash node',
+)
+
+replace_once(
+    'static struct list_head allow_list;\n\n',
+    'static struct list_head allow_list;\n\n'
+    '#define ALLOW_LIST_UID_HASH_BITS 8\n'
+    'static DEFINE_HASHTABLE(allow_list_uid_hash, ALLOW_LIST_UID_HASH_BITS);\n\n'
+    'static inline void allow_list_uid_hash_add(struct perm_data *p)\n'
+    '{\n'
+    '    unsigned long bucket =\n'
+    '        hash_min(p->profile.current_uid, HASH_BITS(allow_list_uid_hash));\n'
+    '    hlist_add_tail_rcu(&p->uid_hash, &allow_list_uid_hash[bucket]);\n'
+    '}\n\n',
+    'UID hash table',
+)
+
+replace_once(
+    'bool ksu_get_app_profile(struct app_profile *profile)\n'
+    '{\n'
+    '    struct perm_data *p = NULL;\n'
+    '    bool found = false;\n\n'
+    '    rcu_read_lock();\n'
+    '    list_for_each_entry_rcu (p, &allow_list, list) {\n'
+    '        bool uid_match = profile->current_uid == p->profile.current_uid;\n'
+    '        if (uid_match) {\n'
+    '            // found it, override it with ours\n'
+    '            memcpy(profile, &p->profile, sizeof(*profile));\n'
+    '            found = true;\n'
+    '            goto exit;\n'
+    '        }\n'
+    '    }\n\n'
+    'exit:\n'
+    '    rcu_read_unlock();\n'
+    '    return found;\n'
+    '}\n',
+    'bool ksu_get_app_profile(struct app_profile *profile)\n'
+    '{\n'
+    '    struct perm_data *p = NULL;\n'
+    '    bool found = false;\n'
+    '    uid_t uid = profile->current_uid;\n\n'
+    '    rcu_read_lock();\n'
+    '    hash_for_each_possible_rcu(allow_list_uid_hash, p, uid_hash, uid) {\n'
+    '        if (uid == p->profile.current_uid) {\n'
+    '            // found it, override it with ours\n'
+    '            memcpy(profile, &p->profile, sizeof(*profile));\n'
+    '            found = true;\n'
+    '            break;\n'
+    '        }\n'
+    '    }\n'
+    '    rcu_read_unlock();\n'
+    '    return found;\n'
+    '}\n',
+    'hot-path profile lookup',
+)
+
+replace_once(
+    '            memcpy(&np->profile, profile, sizeof(*profile));\n'
+    '            list_replace_rcu(&p->list, &np->list);\n'
+    '            kfree_rcu(p, rcu);\n',
+    '            memcpy(&np->profile, profile, sizeof(*profile));\n'
+    '            list_replace_rcu(&p->list, &np->list);\n'
+    '            hlist_replace_rcu(&p->uid_hash, &np->uid_hash);\n'
+    '            kfree_rcu(p, rcu);\n',
+    'profile replacement index',
+)
+
+replace_once(
+    '    list_add_tail_rcu(&p->list, &allow_list);\n',
+    '    list_add_tail_rcu(&p->list, &allow_list);\n'
+    '    allow_list_uid_hash_add(p);\n',
+    'profile insertion index',
+)
+
+replace_once(
+    '            list_del_rcu(&np->list);\n'
+    '            kfree_rcu(np, rcu);\n',
+    '            hlist_del_rcu(&np->uid_hash);\n'
+    '            list_del_rcu(&np->list);\n'
+    '            kfree_rcu(np, rcu);\n',
+    'prune index removal',
+)
+
+replace_once(
+    '\tINIT_LIST_HEAD(&allow_list);\n',
+    '\tINIT_LIST_HEAD(&allow_list);\n'
+    '\thash_init(allow_list_uid_hash);\n',
+    'hash init',
+)
+
+replace_once(
+    '\tlist_for_each_entry_safe (np, n, &allow_list, list) {\n'
+    '\t\tlist_del(&np->list);\n'
+    '\t\tkfree(np);\n'
+    '\t}\n',
+    '\tlist_for_each_entry_safe (np, n, &allow_list, list) {\n'
+    '\t\thlist_del(&np->uid_hash);\n'
+    '\t\tlist_del(&np->list);\n'
+    '\t\tkfree(np);\n'
+    '\t}\n',
+    'exit index removal',
+)
+
+required = (
+    '#include <linux/hashtable.h>',
+    'DEFINE_HASHTABLE(allow_list_uid_hash, ALLOW_LIST_UID_HASH_BITS)',
+    'hash_for_each_possible_rcu(allow_list_uid_hash, p, uid_hash, uid)',
+    'hlist_replace_rcu(&p->uid_hash, &np->uid_hash)',
+    'hlist_del_rcu(&np->uid_hash)',
+    'hash_init(allow_list_uid_hash)',
+)
+for marker in required:
+    if marker not in s:
+        raise SystemExit(f"allowlist hash patch verification failed: {marker}")
+
+p.write_text(s)
+print("[N45][KSUN-legacy] added RCU UID hash index for app-profile lookup")
+PY
+  grep -Fq 'DEFINE_HASHTABLE(allow_list_uid_hash' "$KSUN_DIR/kernel/policy/allowlist.c"
+  grep -Fq 'hash_for_each_possible_rcu(allow_list_uid_hash' "$KSUN_DIR/kernel/policy/allowlist.c"
+  grep -Fq 'hlist_replace_rcu(&p->uid_hash, &np->uid_hash)' "$KSUN_DIR/kernel/policy/allowlist.c"
 fi
 
 ln -s "../KernelSU-Next/kernel" drivers/kernelsu
