@@ -4,11 +4,12 @@ from pathlib import Path
 
 def replace_once(path: Path, old: str, new: str, label: str) -> None:
     s = path.read_text()
+    if old in s:
+        path.write_text(s.replace(old, new, 1))
+        return
     if new in s:
         return
-    if old not in s:
-        raise SystemExit(f"{label}: expected anchor not found in {path}")
-    path.write_text(s.replace(old, new, 1))
+    raise SystemExit(f"{label}: expected anchor not found in {path}")
 
 
 ksu_hide = Path("KernelSU-Next/kernel/feature/selinux_hide.c")
