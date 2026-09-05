@@ -44,6 +44,36 @@ if [[ "${GX_SUSFS:-0}" == "0" ]]; then
     echo "[N45][KSUN-legacy] stale SELinux status fake-page ABI remains" >&2
     exit 5
   fi
+
+  # Official legacy runs kernel_umount from the zygote setresuid path. Keep the
+  # unmount/hiding behavior, but do not emit KERN_INFO messages for every app
+  # spawn, every module mount, or repeated namespace miss. On module-heavy
+  # systems that printk traffic sits directly on the app-launch path.
+  python3 - "$KSUN_DIR/kernel/feature/kernel_umount.c" <<'PY'
+from pathlib import Path
+import sys
+
+p = Path(sys.argv[1])
+s = p.read_text()
+replacements = (
+    ('pr_info("umount %s failed: %d\\n", mnt, err);',
+     'pr_debug("umount %s failed: %d\\n", mnt, err);'),
+    ('pr_info("%s: unmounting: %s flags: 0x%x\\n", __func__, entry->umountable, entry->flags);',
+     'pr_debug("%s: unmounting: %s flags: 0x%x\\n", __func__, entry->umountable, entry->flags);'),
+    ('pr_info("handle umount ignore non zygote child: %d\\n", current->pid);',
+     'pr_debug("handle umount ignore non zygote child: %d\\n", current->pid);'),
+    ('pr_info("handle umount for uid: %d, pid: %d\\n", new_uid, current->pid);',
+     'pr_debug("handle umount for uid: %d, pid: %d\\n", new_uid, current->pid);'),
+)
+for old, new in replacements:
+    if old not in s:
+        raise SystemExit(f"kernel_umount log anchor missing: {old}")
+    s = s.replace(old, new, 1)
+p.write_text(s)
+print("[N45][KSUN-legacy] quieted kernel_umount app-spawn hot-path logging")
+PY
+  grep -Fq 'pr_debug("handle umount for uid:' "$KSUN_DIR/kernel/feature/kernel_umount.c"
+  grep -Fq 'pr_debug("%s: unmounting:' "$KSUN_DIR/kernel/feature/kernel_umount.c"
 fi
 
 ln -s "../KernelSU-Next/kernel" drivers/kernelsu
@@ -57,9 +87,7 @@ fi
 python3 - "$DEFCONFIG" "${GX_SUSFS:-0}" <<'PY'
 from pathlib import Path
 import re, sys
-p = Path(sys.argv[1])
-susfs = sys.argv[2] == '1'
-s = p.read_text()
+p = Path(sys.argv[1]); susfs = sys.argv[2] == '1'; s = p.read_text()
 
 def set_cfg(key, value):
     global s
