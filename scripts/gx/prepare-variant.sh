@@ -60,16 +60,11 @@ if [[ "$GX_ROOT" != none ]]; then
   python3 scripts/gx/strip-modern-ksu-legacy-vendor-hooks.py
 fi
 
-# KSUN no-SUSFS uses the official legacy/manual-hook engine on N45. Install
-# only the KernelSU hook surface here; no SUSFS source/features are introduced.
+# KSUN no-SUSFS needs the base manual hook surface before lifecycle wiring.
+# SUSFS builds get the final manual-hook surface from the SUSFS v2 adapter below,
+# so do not install the base hooks twice.
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
   python3 scripts/gx/apply-ksun-manual-hooks.py
-  # Legacy/manual KSUN also needs init.rc read/stat and input lifecycle hooks.
-  # Without these, ksud service-stage module actions never get injected into init.
-  python3 scripts/gx/apply-ksun-legacy-lifecycle-hooks.py
-  # Present stock-like SELinux context/access/status results to normal apps,
-  # while keeping KSUN's real modified policy active inside the kernel.
-  python3 scripts/gx/apply-ksun-dirtysepolicy-hide.py
 fi
 
 if [[ "$GX_SUSFS" == 1 ]]; then
@@ -78,6 +73,17 @@ if [[ "$GX_SUSFS" == 1 ]]; then
   # pre-existing XArray backport. N45 does not have XArray; keep the API while
   # retaining the proven radix-tree/simple-lock implementation used by 4.14.
   python3 scripts/gx/adapt-ida-414-no-xarray.py
+fi
+
+# Preserve the exact working #228 KSUN runtime behavior on both no-SUSFS and
+# SUSFS lanes. Run these after SUSFS mutation so nothing can overwrite them.
+if [[ "$GX_ROOT" == "ksun" ]]; then
+  # Inject ksud post-fs-data/services lifecycle into init.rc reads so Zygisk and
+  # other modules start normally during boot.
+  python3 scripts/gx/apply-ksun-legacy-lifecycle-hooks.py
+  # Present stock-like SELinux context/access/status results to normal apps,
+  # while keeping KSUN's real modified policy active inside the kernel.
+  python3 scripts/gx/apply-ksun-dirtysepolicy-hide.py
 fi
 
 echo "[GXT] variant preparation complete: $GX_VARIANT"
