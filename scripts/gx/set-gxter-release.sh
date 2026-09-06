@@ -51,7 +51,3 @@ PY
 # Apply after OpenELA + variant preparation so no later source setup can
 # restore release-token-sensitive module loading before compilation.
 bash scripts/gx/apply-clean-vermagic-compat.sh
-
-# #219: preserve all #218 behavior and only guard the rmnet TX queue against
-# remaining stopped after an AP suspend/resume edge.
-bash scripts/gx/apply-rmnet-resume-wake-guard.sh
