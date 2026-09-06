@@ -136,27 +136,50 @@ jobs:
         if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187-ksun'
         run: |
           set -euo pipefail
-          source .gx-variant
-          test "$GX_ROOT" = 'ksun'
-          test "$GX_SUSFS" = '0'
-          test "$(git -C KernelSU-Next rev-parse HEAD)" = 'a54e4fa46c6cc25bcaa055cf14d790194beffed8'
-          grep -Fxq 'CONFIG_KSU=y' out/.config
-          grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
-          grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' out/.config
-          if grep -Fxq 'CONFIG_KSU_SUSFS=y' out/.config; then
-            echo 'SUSFS unexpectedly enabled in KSUN no-SUSFS lane' >&2
-            exit 12
-          fi
 
-          grep -Fq 'N45 DirtySepolicy parity' KernelSU-Next/kernel/feature/selinux_hide.c
-          grep -Fq 'new_status->sequence = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
-          grep -Fq 'new_status->policyload = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
-          grep -Fq 'filp->private_data = data;' KernelSU-Next/kernel/feature/selinux_hide.c
-          ! grep -Fq 'filp->private_data = page_address(data);' KernelSU-Next/kernel/feature/selinux_hide.c
-          grep -Fq 'ksu_selinux_hide_track_policy_cmd' KernelSU-Next/kernel/selinux/rules.c
-          grep -Fq 'ksu_selinux_hide_transaction_pre' security/selinux/selinuxfs.c
-          grep -Fq 'ksu_selinux_hide_transaction_post' security/selinux/selinuxfs.c
-          grep -Fq 'ksu_selinux_hide_setprocattr_pre' security/selinux/hooks.c
+          fail() {
+            echo "::error::$1" >&2
+            exit 13
+          }
+          require_line() {
+            local label="$1" needle="$2" file="$3"
+            grep -Fq "$needle" "$file" || fail "$label missing: $needle ($file)"
+            echo "[KSUN] ok: $label"
+          }
+
+          source .gx-variant
+          test "$GX_ROOT" = 'ksun' || fail "GX_ROOT is $GX_ROOT, expected ksun"
+          test "$GX_SUSFS" = '0' || fail "GX_SUSFS is $GX_SUSFS, expected 0"
+          actual_ksun="$(git -C KernelSU-Next rev-parse HEAD)"
+          test "$actual_ksun" = 'a54e4fa46c6cc25bcaa055cf14d790194beffed8' || \
+            fail "KSUN pin mismatch: $actual_ksun"
+
+          echo '[KSUN] generated KSU config:'
+          grep -E '^(CONFIG_KSU|# CONFIG_KSU)' out/.config || true
+          grep -Fxq 'CONFIG_KSU=y' out/.config || fail 'CONFIG_KSU=y missing'
+          grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' out/.config || fail 'CONFIG_KSU_MANUAL_HOOK=y missing'
+          # KSU_KPROBES_HOOK depends on !KSU_MANUAL_HOOK. Old Kconfig may omit an
+          # invisible n-valued symbol entirely, so verify the semantic condition
+          # (not enabled) instead of requiring a particular serialized n line.
+          if grep -Fxq 'CONFIG_KSU_KPROBES_HOOK=y' out/.config; then
+            fail 'CONFIG_KSU_KPROBES_HOOK unexpectedly enabled'
+          fi
+          if grep -Fxq 'CONFIG_KSU_SUSFS=y' out/.config; then
+            fail 'SUSFS unexpectedly enabled in KSUN no-SUSFS lane'
+          fi
+          echo '[KSUN] ok: manual-hook/no-SUSFS generated config'
+
+          require_line 'DirtySepolicy helper block' 'N45 DirtySepolicy parity' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'stock status sequence' 'new_status->sequence = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'stock status policyload' 'new_status->policyload = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line '4.14 status page ABI' 'filp->private_data = data;' KernelSU-Next/kernel/feature/selinux_hide.c
+          if grep -Fq 'filp->private_data = page_address(data);' KernelSU-Next/kernel/feature/selinux_hide.c; then
+            fail 'newer-kernel status-page ABI leaked into N45 4.14 shim'
+          fi
+          require_line 'policy command tracking' 'ksu_selinux_hide_track_policy_cmd' KernelSU-Next/kernel/selinux/rules.c
+          require_line 'selinuxfs transaction pre-hook' 'ksu_selinux_hide_transaction_pre' security/selinux/selinuxfs.c
+          require_line 'selinuxfs transaction post-hook' 'ksu_selinux_hide_transaction_post' security/selinux/selinuxfs.c
+          require_line 'setprocattr hidden-context hook' 'ksu_selinux_hide_setprocattr_pre' security/selinux/hooks.c
           echo '[KSUN] DirtySepolicy context/access/status/manual-hook surface verified'
 
       - name: Upload failed-build diagnostics
