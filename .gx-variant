@@ -1,6 +1,6 @@
 GX_VARIANT="REV187"
 GX_ZIP="Gxterkernl-joyeuse-4.14.357-rev187.zip"
 GX_ROOT="ksun"
-GX_SUSFS="0"
+GX_SUSFS="1"
 GX_BP="0"
 GX_DEFCONFIG="vendor/miatoll-perf_defconfig"
