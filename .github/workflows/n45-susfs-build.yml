@@ -118,11 +118,26 @@ jobs:
             test "$(git -C KernelSU-Next rev-parse HEAD)" = "$KSUN_SUSFS_COMMIT"
             grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
             ! grep -Fxq 'CONFIG_KSU_KPROBES_HOOK=y' out/.config
-            grep -Fq 'N45 DirtySepolicy parity' KernelSU-Next/kernel/feature/selinux_hide.c
-            grep -Fq 'new_status->sequence = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
-            grep -Fq 'new_status->policyload = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
-            grep -Fq 'ksu_selinux_hide_transaction_pre' security/selinux/selinuxfs.c
-            grep -Fq 'ksu_selinux_hide_setprocattr_pre' security/selinux/hooks.c
+
+            # sidex legacy-susfs-v2 carries its own DirtySepolicy view. Verify
+            # the exact app-only guards and 4.14 fake-status semantics instead
+            # of stacking the no-SUSFS #228 shim onto the same hooks.
+            hide='KernelSU-Next/kernel/feature/selinux_hide.c'
+            grep -Fq 'current_uid().val < 10000' "$hide"
+            grep -Fq 'test_thread_flag(TIF_SECCOMP)' "$hide"
+            grep -Fq 'ksu_selinux_transaction_write' "$hide"
+            grep -Fq 'ksu_hide_setprocattr' "$hide"
+            grep -Fq 'ksu_slow_avc_audit' "$hide"
+            grep -Fq 'fake_status->enforcing = 1;' "$hide"
+            grep -Fq 'fake_status->sequence = 0;' "$hide"
+            grep -Fq 'fake_status->policyload = 0;' "$hide"
+            grep -Fq 'filp->private_data = ksu_fake_status_page;' "$hide"
+            grep -Fq 'ksu_init_hook_selinux_transaction_write();' "$hide"
+            grep -Fq 'ksu_init_hook_selinux_status_open();' "$hide"
+            grep -Fq 'ksu_add_shit_to_list' KernelSU-Next/kernel/feature/selinux_hide.h
+            grep -Fq '#include "feature/selinux_hide.c"' KernelSU-Next/kernel/selinux/rules.c
+
+            # Preserve the #228 lifecycle/Zygisk path in the actual Image.
             grep -Fq 'read init.rc, comm:' "$strings_file"
             grep -Fq 'read_proxy: orig read finished, start append rc' "$strings_file"
             grep -Fq 'on_post_fs_data!' "$strings_file"
