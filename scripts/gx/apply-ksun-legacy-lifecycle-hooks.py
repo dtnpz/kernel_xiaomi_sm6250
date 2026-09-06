@@ -2,7 +2,7 @@
 """Restore the KSUN legacy/manual lifecycle hooks required on N45/4.14.
 
 The common legacy-callback scrub runs before the KSUN adapter so modern root
-lanes do not inherit stale ProjectVelvet callbacks.  KernelSU-Next's official
+lanes do not inherit stale ProjectVelvet callbacks. KernelSU-Next's official
 legacy/manual tree, however, still requires three lifecycle surfaces that are
 not part of the sucompat-only adapter:
 
@@ -12,7 +12,7 @@ not part of the sucompat-only adapter:
 
 Without the first two, second-stage/zygote detection can still happen while the
 injected init.rc actions (ksud post-fs-data/services/boot-completed) never
-exist.  That leaves service-stage modules such as Zygisk Next only partially
+exist. That leaves service-stage modules such as Zygisk Next only partially
 started or not started at boot.
 """
 from pathlib import Path
@@ -36,33 +36,41 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 
 # fs/read_write.c -- init.rc read proxy used by the legacy/manual KSUN path.
+# The stale-hook scrub removes whole CONFIG_KSU blocks but intentionally leaves
+# surrounding blank lines, so anchor on the vfs_read function itself rather than
+# an exact number of newlines around EXPORT_SYMBOL(kernel_read).
 path = "fs/read_write.c"
 s = read(path)
-if "CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_vfs_read" not in s:
-    s = replace_once(
-        s,
-        "EXPORT_SYMBOL(kernel_read);\n\nssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)\n{\n\tssize_t ret;\n",
-        """EXPORT_SYMBOL(kernel_read);
-
-#ifdef CONFIG_KSU_MANUAL_HOOK
+if "ksu_handle_vfs_read(&file, &buf, &count, &pos);" not in s:
+    marker = "ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)\n"
+    if s.count(marker) != 1:
+        raise SystemExit(
+            f"[N45][KSUN-lifecycle] expected one vfs_read function, got {s.count(marker)}"
+        )
+    decl = """#ifdef CONFIG_KSU_MANUAL_HOOK
 extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr,
                                size_t *count_ptr, loff_t **pos);
 #endif
 
-ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
-{
+"""
+    s = s.replace(marker, decl + marker, 1)
+    pos = s.index(marker)
+    body = "{\n\tssize_t ret;\n"
+    body_pos = s.find(body, pos)
+    if body_pos < 0:
+        raise SystemExit("[N45][KSUN-lifecycle] vfs_read body anchor not found")
+    replacement = """{
 \tssize_t ret;
 #ifdef CONFIG_KSU_MANUAL_HOOK
 \tksu_handle_vfs_read(&file, &buf, &count, &pos);
 #endif
-""",
-        "vfs_read init.rc proxy hook",
-    )
+"""
+    s = s[:body_pos] + s[body_pos:].replace(body, replacement, 1)
 write(path, s)
 
 
 # fs/stat.c -- keep init.rc stat size consistent with the bytes appended by the
-# vfs_read proxy.  The placement mirrors established KSUN manual integrations.
+# vfs_read proxy. The placement mirrors established KSUN manual integrations.
 path = "fs/stat.c"
 s = read(path)
 if "ksu_handle_newfstat_ret" not in s:
@@ -134,7 +142,7 @@ write(path, s)
 # common stale-hook scrub intentionally removed before this KSUN-specific pass.
 path = "drivers/input/input.c"
 s = read(path)
-if "CONFIG_KSU_MANUAL_HOOK\nextern int ksu_handle_input_handle_event" not in s:
+if "ksu_handle_input_handle_event(&type, &code, &value);" not in s:
     s = replace_once(
         s,
         "static void input_handle_event(struct input_dev *dev,\n",
@@ -162,7 +170,7 @@ write(path, s)
 
 checks = {
     "fs/read_write.c": [
-        "CONFIG_KSU_MANUAL_HOOK",
+        "#ifdef CONFIG_KSU_MANUAL_HOOK",
         "ksu_handle_vfs_read(&file, &buf, &count, &pos);",
     ],
     "fs/stat.c": [
