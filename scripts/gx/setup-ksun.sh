@@ -13,15 +13,16 @@ KSUN_DIR="$ROOT_DIR/KernelSU-Next"
 
 rm -rf "$KSUN_DIR" drivers/kernelsu
 
-# N45 4.14 uses the pinned legacy/manual-hook tree for both KSUN lanes.
-# SUSFS remains a Kconfig/build-time choice; using one manual-hook-capable core
-# prevents the no-SUSFS variant from falling back to kprobes/tracepoints.
-KSU_REPO="$KSUN_SUSFS_REPO"
-KSU_COMMIT="$KSUN_SUSFS_COMMIT"
 if [[ "${GX_SUSFS:-0}" == "1" ]]; then
-  echo "[GXT] integrating KernelSU-Next SUSFS-v2 manual-hook tree @ $KSU_COMMIT"
+  KSU_REPO="$KSUN_SUSFS_REPO"
+  KSU_COMMIT="$KSUN_SUSFS_COMMIT"
+  echo "[GXT] integrating KernelSU-Next SUSFS-v2 compatibility tree @ $KSU_COMMIT"
 else
-  echo "[GXT] integrating KernelSU-Next manual-hook core (SUSFS disabled) @ $KSU_COMMIT"
+  # N45 is Linux 4.14. Use KernelSU-Next's official legacy/manual-hook branch,
+  # not the stable KPROBES-oriented release lane.
+  KSU_REPO="$KSUN_REPO"
+  KSU_COMMIT="$KSUN_LEGACY_COMMIT"
+  echo "[GXT] integrating official KernelSU-Next ${KSUN_LEGACY_BRANCH} manual-hook tree @ $KSU_COMMIT"
 fi
 
 git clone -q "$KSU_REPO" "$KSUN_DIR"
@@ -43,9 +44,7 @@ fi
 python3 - "$DEFCONFIG" "${GX_SUSFS:-0}" <<'PY'
 from pathlib import Path
 import re, sys
-p = Path(sys.argv[1])
-susfs = sys.argv[2] == '1'
-s = p.read_text()
+p = Path(sys.argv[1]); susfs = sys.argv[2] == '1'; s = p.read_text()
 
 def set_cfg(key, value):
     global s
@@ -58,15 +57,21 @@ def set_cfg(key, value):
             s += '\n'
         s += line + '\n'
 
+def drop_cfg(key):
+    global s
+    pat = re.compile(rf'^(?:CONFIG_{re.escape(key)}=.*|# CONFIG_{re.escape(key)} is not set)\n?', re.M)
+    s = pat.sub('', s)
+
 set_cfg('KSU', 'y')
 set_cfg('EXT4_FS', 'y')
 set_cfg('KSU_MANUAL_HOOK', 'y')
 set_cfg('KSU_KPROBES_HOOK', 'n')
-# Do not force generic Linux KPROBES/KRETPROBES. Preserve the Miatoll baseline.
-if not susfs:
-    # The pinned manual-hook tree defaults SUSFS on, so explicitly turn it off
-    # for the no-SUSFS release variant.
-    set_cfg('KSU_SUSFS', 'n')
+# Preserve the known-good Miatoll baseline for generic KPROBES/KRETPROBES.
+# KSUN itself uses only its manual hook surface on this 4.14 lane.
+if susfs:
+    set_cfg('KSU_SUSFS', 'y')
+else:
+    drop_cfg('KSU_SUSFS')
 
 p.write_text(s)
 PY
@@ -75,10 +80,19 @@ grep -Fxq 'CONFIG_KSU=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_EXT4_FS=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
 grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
-test -f "$KSUN_DIR/kernel/supercall/dispatch.c"
-grep -Fq 'config KSU_SUSFS' "$KSUN_DIR/kernel/Kconfig"
-if [[ "${GX_SUSFS:-0}" == "0" ]]; then
-  grep -Fxq '# CONFIG_KSU_SUSFS is not set' "$DEFCONFIG"
-fi
 
-echo "[GXT] KernelSU-Next manual-hook integration ready"
+if [[ "${GX_SUSFS:-0}" == "0" ]]; then
+  test -f "$KSUN_DIR/kernel/core/init.c"
+  test -f "$KSUN_DIR/kernel/runtime/ksud_integration.c"
+  test -f "$KSUN_DIR/kernel/supercall/supercall.c"
+  grep -Fq 'config KSU_MANUAL_HOOK' "$KSUN_DIR/kernel/Kconfig"
+  grep -Fq 'This should not be used on kernel below 5.10' "$KSUN_DIR/kernel/Kconfig"
+  grep -Fq 'int ksu_handle_execveat(' "$KSUN_DIR/kernel/core/init.c"
+  grep -Fq 'ksu_handle_vfs_read' "$KSUN_DIR/kernel/runtime/ksud_integration.c"
+  grep -Fq 'ksu_handle_sys_reboot' "$KSUN_DIR/kernel/supercall/supercall.c"
+  echo "[GXT] official KernelSU-Next legacy manual-hook integration ready"
+else
+  grep -Fq 'config KSU_SUSFS' "$KSUN_DIR/kernel/Kconfig"
+  grep -Fxq 'CONFIG_KSU_SUSFS=y' "$DEFCONFIG"
+  echo "[GXT] KernelSU-Next SUSFS compatibility integration ready"
+fi
