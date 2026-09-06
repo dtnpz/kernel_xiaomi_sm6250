@@ -64,6 +64,9 @@ fi
 # only the KernelSU hook surface here; no SUSFS source/features are introduced.
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
   python3 scripts/gx/apply-ksun-manual-hooks.py
+  # Legacy/manual KSUN also needs init.rc read/stat and input lifecycle hooks.
+  # Without these, ksud service-stage module actions never get injected into init.
+  python3 scripts/gx/apply-ksun-legacy-lifecycle-hooks.py
   # Present stock-like SELinux context/access/status results to normal apps,
   # while keeping KSUN's real modified policy active inside the kernel.
   python3 scripts/gx/apply-ksun-dirtysepolicy-hide.py
