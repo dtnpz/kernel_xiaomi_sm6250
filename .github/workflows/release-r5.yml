@@ -1,0 +1,131 @@
+name: Release N45 r5 tested root variants
+
+on:
+  push:
+    branches:
+      - release-r5-stable-roots
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout release manifest
+        uses: actions/checkout@v4
+
+      - name: Verify selected builds and collect r5 assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p downloads release-assets
+
+          collect_variant() {
+            local run_id="$1"
+            local branch="$2"
+            local expected_sha="$3"
+            local artifact="$4"
+            local expected_zip="$5"
+            local expected_sha256="$6"
+            local release_zip="$7"
+
+            local status conclusion head_branch head_sha
+            status="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .status)"
+            conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .conclusion)"
+            head_branch="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_branch)"
+            head_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" --jq .head_sha)"
+
+            if [[ "$status" != completed || "$conclusion" != success || "$head_branch" != "$branch" || "$head_sha" != "$expected_sha" ]]; then
+              echo "Refusing r5: run $run_id mismatch" >&2
+              echo " expected branch=$branch sha=$expected_sha status=completed conclusion=success" >&2
+              echo " actual   branch=$head_branch sha=$head_sha status=$status conclusion=$conclusion" >&2
+              exit 10
+            fi
+
+            gh run download "$run_id" -n "$artifact" -D "downloads/$branch"
+            local src="downloads/$branch/$expected_zip"
+            [[ -s "$src" ]] || { echo "Missing expected ZIP: $src" >&2; exit 11; }
+            [[ -s "$src.sha256" ]] || { echo "Missing $src.sha256" >&2; exit 12; }
+            [[ -s "$src.md5" ]] || { echo "Missing $src.md5" >&2; exit 13; }
+            unzip -tqq "$src"
+
+            local side_sha actual_sha
+            side_sha="$(awk 'NR==1 {print tolower($1)}' "$src.sha256")"
+            actual_sha="$(sha256sum "$src" | awk '{print $1}')"
+            [[ "$side_sha" == "$actual_sha" ]] || { echo "Artifact SHA256 sidecar mismatch for $src" >&2; exit 14; }
+            [[ "$actual_sha" == "$expected_sha256" ]] || { echo "Pinned SHA256 mismatch for $src: $actual_sha" >&2; exit 15; }
+
+            local side_md5 actual_md5
+            side_md5="$(awk 'NR==1 {print tolower($1)}' "$src.md5")"
+            actual_md5="$(md5sum "$src" | awk '{print $1}')"
+            [[ "$side_md5" == "$actual_md5" ]] || { echo "Artifact MD5 sidecar mismatch for $src" >&2; exit 16; }
+
+            cp "$src" "release-assets/$release_zip"
+            (cd release-assets && sha256sum "$release_zip" > "$release_zip.sha256")
+            (cd release-assets && md5sum "$release_zip" > "$release_zip.md5")
+          }
+
+          # Device-tested XXKSU v3.3.0-20 / UAPI3 build #224.
+          collect_variant \
+            34025740580 \
+            gxterkernl-joyeuse-rev187-xxksu33020 \
+            c0126ecb1b003f743bc07aff61bf701e188f31dd \
+            n45-gxterkernl-joyeuse-rev187-xxksu33020 \
+            Gxterkernl-joyeuse-4.14.357-rev187.zip \
+            253e7092ae01f522e579c401907fca8a4528cabd9eebc3955b83a94ea87c2ebf \
+            GXT-Kernel-4.14.357-MIUI-XXKSU33020-UAPI3-NOSUSFS-NBP-r5.zip
+
+          # Device-tested KSUN manual-hook / DirtySepolicy / Zygisk lifecycle build #228.
+          collect_variant \
+            34038559013 \
+            gxterkernl-joyeuse-4.14.357-rev187-ksun \
+            e4386cab97565e8d22265770e3c746ae90bb3b33 \
+            n45-gxterkernl-joyeuse-4.14.357-rev187-ksun \
+            Gxterkernl-joyeuse-4.14.357-rev187.zip \
+            c8268269c5fffa5ac94338def308cb5d0f2a208539c2b2a1a4014043da22a6fe \
+            GXT-Kernel-4.14.357-MIUI-KSUN-UAPI2-NOSUSFS-NBP-r5.zip
+
+          [[ "$(find release-assets -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 2 ]] || {
+            echo 'Refusing r5: expected exactly 2 flashable ZIPs' >&2
+            exit 17
+          }
+          (cd release-assets && sha256sum *.zip | sort > SHA256SUMS)
+          (cd release-assets && md5sum *.zip | sort > MD5SUMS)
+          echo '[r5] exact tested XXKSU #224 and KSUN #228 artifacts verified'
+
+      - name: Create GitHub Release r5
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='gxt-4.14.357-miatoll-r5'
+          title='GXT-Kernel 4.14.357 — Miatoll r5'
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing duplicate." >&2
+            exit 20
+          fi
+
+          cat > release-notes.md <<'EOF'
+          ## GXT-Kernel 4.14.357 — Miatoll r5
+
+          Tested root-variant release for MIUI Android 12 / Miatoll on the 4.14.357 baseline.
+
+          ### Included
+          - **XXKSU v3.3.0-20 / UAPI3 / no-SUSFS / NBP** — exact successful workflow build **#224** (`c0126ecb1b003f743bc07aff61bf701e188f31dd`). Uses backslashxx KernelSU v3.3.0-20 and preserves the rev187 single-flight throne behavior and clean kernel identity. Device boot and root operation were confirmed.
+          - **KernelSU-Next / UAPI2 / manual-hook / no-SUSFS / NBP** — exact successful workflow build **#228** (`e4386cab97565e8d22265770e3c746ae90bb3b33`). Includes the working DirtySepolicy/SELinux-hide parity and restored legacy init.rc/module lifecycle hooks. Device boot, Zygisk Next lifecycle, and root operation were confirmed.
+
+          ### Notes
+          - Both variants preserve the clean public kernel naming and rev187 runtime base.
+          - SUSFS is not included.
+          - The two release asset names are distinct only for identification; the verified flash ZIP payloads are reused from their successful CI artifacts without rebuilding.
+          - Per-file SHA-256/MD5 sidecars plus aggregate `SHA256SUMS` and `MD5SUMS` are included.
+          EOF
+
+          gh release create "$tag" release-assets/* \
+            --target "$GITHUB_SHA" \
+            --title "$title" \
+            --notes-file release-notes.md
