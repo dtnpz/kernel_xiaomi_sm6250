@@ -14,6 +14,7 @@ on:
       - miatoll-nexus45-bp-xxksu-nosusfs
       - miatoll-nexus45-bp-ksun-nosusfs
       - gxterkernl-joyeuse-4.14.357-rev187
+      - gxterkernl-joyeuse-4.14.357-rev187-ksun
   workflow_dispatch:
 
 permissions:
@@ -90,7 +91,7 @@ jobs:
           exit "$status"
 
       - name: Verify clean rev187 identity
-        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187'
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187' || github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187-ksun'
         run: |
           set -euo pipefail
           internal='4.14.357-Gxterkernl-joyeuse-rev187'
@@ -128,8 +129,35 @@ jobs:
           test "$GX_ZIP" = "${display}.zip"
           sha256sum "$zip" > "$zip.sha256"
           md5sum "$zip" > "$zip.md5"
-          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ninternal_uts_release=%s\nuname_display=%s\nidentity_mode=clean-version-first-internal\nmodule_compat=ignore-release-token-only\nruntime_root_behavior=preserved-from-r187\n' \
-            "$internal" "$display" > "artifacts/${display}.release-info.txt"
+          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ninternal_uts_release=%s\nuname_display=%s\nidentity_mode=clean-version-first-internal\nmodule_compat=ignore-release-token-only\nroot_lane=%s\n' \
+            "$internal" "$display" "$GX_ROOT" > "artifacts/${display}.release-info.txt"
+
+      - name: Verify KSUN DirtySepolicy parity
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187-ksun'
+        run: |
+          set -euo pipefail
+          source .gx-variant
+          test "$GX_ROOT" = 'ksun'
+          test "$GX_SUSFS" = '0'
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = 'a54e4fa46c6cc25bcaa055cf14d790194beffed8'
+          grep -Fxq 'CONFIG_KSU=y' out/.config
+          grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' out/.config
+          grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' out/.config
+          if grep -Fxq 'CONFIG_KSU_SUSFS=y' out/.config; then
+            echo 'SUSFS unexpectedly enabled in KSUN no-SUSFS lane' >&2
+            exit 12
+          fi
+
+          grep -Fq 'N45 DirtySepolicy parity' KernelSU-Next/kernel/feature/selinux_hide.c
+          grep -Fq 'new_status->sequence = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
+          grep -Fq 'new_status->policyload = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
+          grep -Fq 'filp->private_data = data;' KernelSU-Next/kernel/feature/selinux_hide.c
+          ! grep -Fq 'filp->private_data = page_address(data);' KernelSU-Next/kernel/feature/selinux_hide.c
+          grep -Fq 'ksu_selinux_hide_track_policy_cmd' KernelSU-Next/kernel/selinux/rules.c
+          grep -Fq 'ksu_selinux_hide_transaction_pre' security/selinux/selinuxfs.c
+          grep -Fq 'ksu_selinux_hide_transaction_post' security/selinux/selinuxfs.c
+          grep -Fq 'ksu_selinux_hide_setprocattr_pre' security/selinux/hooks.c
+          echo '[KSUN] DirtySepolicy context/access/status/manual-hook surface verified'
 
       - name: Upload failed-build diagnostics
         if: always()
