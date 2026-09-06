@@ -15,11 +15,27 @@ SETUP_URL="https://raw.githubusercontent.com/backslashxx/KernelSU/${XXKSU_COMMIT
 echo "[N45] integrating backslashxx KernelSU ${XXKSU_TAG} (${XXKSU_COMMIT})"
 curl -fL --retry 3 --retry-delay 2 "$SETUP_URL" | sh -s -- "$XXKSU_COMMIT"
 
+# backslashxx/setup.sh may shallow-clone the current default branch and then
+# fail to resolve an older pinned SHA that is still valid upstream.  Keep the
+# exact r187 pin deterministic: fetch that one object explicitly and detach at
+# it instead of silently accepting today's upstream HEAD.
+if [[ ! -d KernelSU/.git ]]; then
+  echo "xxKSU setup did not create KernelSU git checkout" >&2
+  exit 4
+fi
+if ! git -C KernelSU cat-file -e "${XXKSU_COMMIT}^{commit}" 2>/dev/null; then
+  echo "[N45] pinned xxKSU object missing from shallow clone; fetching exact commit"
+  git -C KernelSU fetch --no-tags --depth=1 origin "$XXKSU_COMMIT"
+fi
+git -C KernelSU checkout --detach --force "$XXKSU_COMMIT"
+
 actual="$(git -C KernelSU rev-parse HEAD)"
 if [[ "$actual" != "$XXKSU_COMMIT" ]]; then
   echo "xxKSU pin mismatch: expected $XXKSU_COMMIT got $actual" >&2
   exit 4
 fi
+
+echo "[N45] pinned xxKSU checkout verified: $actual"
 
 # Miatoll runtime adaptation: never run manager discovery synchronously on the
 # packages.list observer and never spawn a high-priority scanner per event.
