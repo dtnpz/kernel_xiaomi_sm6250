@@ -13,10 +13,11 @@ on:
       - miatoll-nexus45-bp-ksun
       - miatoll-nexus45-bp-xxksu-nosusfs
       - miatoll-nexus45-bp-ksun-nosusfs
+      - gxterkernl-joyeuse-4.14.357-rev187
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -40,6 +41,7 @@ jobs:
         run: |
           sed -i 's/flags=re.M)/flags=re.M | re.S)/' scripts/gx/apply-bpf-mmapable-array-v2.sh
           bash scripts/gx/apply-netbpfload-bpf-debug.sh
+          bash scripts/gx/apply-clean-vermagic-compat.sh
           python3 - <<'PY'
           from pathlib import Path
 
@@ -53,12 +55,9 @@ jobs:
           if old not in s:
               raise SystemExit('netbpfload uname spoof anchor not found')
           p.write_text(s.replace(old, new, 1))
-          print('[netbpfload-kver] netbpfload sees real 4.14; bpfloader/netd keep 5.4 spoof')
+          print('[netbpfload-kver] netbpfload sees real clean UTS; bpfloader/netd keep 5.4 compatibility path')
           PY
 
-          # Keep the build itself unchanged, but always retain and surface the
-          # first real compiler/linker failure instead of losing it when the
-          # wrapper exits under `set -e`.
           set +e
           set -o pipefail
           bash scripts/gx/build-n45.sh 2>&1 | tee "$GITHUB_WORKSPACE/build-compile.log"
@@ -74,6 +73,47 @@ jobs:
             echo '::endgroup::'
           fi
           exit "$status"
+
+      - name: Verify clean rev187 identity
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187'
+        run: |
+          set -euo pipefail
+          release_name='Gxterkernl-joyeuse-4.14.357-rev187'
+          actual="$(cat out/include/config/kernel.release)"
+          printf 'kernel.release: %s\n' "$actual"
+          test "$actual" = "$release_name"
+          grep -Fxq "#define UTS_RELEASE \"$release_name\"" out/include/generated/utsrelease.h
+
+          case "$actual" in
+            *XXKSU*|*NOSUSFS*|*SUSFS*)
+              echo "forbidden feature label leaked into UTS release: $actual" >&2
+              exit 8
+              ;;
+          esac
+
+          image="out/arch/arm64/boot/Image.gz"
+          strings_file="$RUNNER_TEMP/rev187-image.strings"
+          test -s "$image"
+          gzip -dc "$image" | strings > "$strings_file"
+          grep -Fxq "$release_name" "$strings_file"
+          grep -Fq "Linux version $release_name" "$strings_file"
+          if grep -Fq '4.14.357-Gxter-XXKSU330-NOSUSFS-NBP-FuckMiatollCommu' "$strings_file"; then
+            echo 'old feature-labelled UTS identity still present in kernel Image' >&2
+            exit 9
+          fi
+
+          grep -Fq 'rev187 clean-name compatibility' kernel/module.c
+          grep -Fq 'amagic += strcspn(amagic, " ");' kernel/module.c
+          grep -Fq 'bmagic += strcspn(bmagic, " ");' kernel/module.c
+
+          source .gx-variant
+          zip="artifacts/$GX_ZIP"
+          test -s "$zip"
+          test "$GX_ZIP" = "${release_name}.zip"
+          sha256sum "$zip" > "$zip.sha256"
+          md5sum "$zip" > "$zip.md5"
+          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ncompiled_uts_release=%s\nidentity_mode=clean-real-uts-release\nmodule_compat=ignore-release-token-only\nruntime_root_behavior=preserved-from-r187\n' \
+            "$release_name" > "artifacts/${release_name}.release-info.txt"
 
       - name: Upload failed-build diagnostics
         if: always()
@@ -91,3 +131,24 @@ jobs:
           path: artifacts/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish Gxterkernl joyeuse rev187 GitHub Release
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='Gxterkernl-joyeuse-4.14.357-rev187'
+          zip="artifacts/${tag}.zip"
+          test -s "$zip"
+          gh release delete "$tag" --cleanup-tag -y >/dev/null 2>&1 || true
+          gh release create "$tag" \
+            "$zip" \
+            "$zip.sha256" \
+            "$zip.md5" \
+            "artifacts/${tag}.release-info.txt" \
+            "artifacts/REV187.config" \
+            "artifacts/REV187.build-info.txt" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --notes 'Based on workflow #187 source behavior (2642d3182aa72b7524f85b6f8b9a4b389c0aa23e). Runtime root functionality is preserved from r187. Public build naming, real UTS_RELEASE and kernel vermagic use only Gxterkernl-joyeuse-4.14.357-rev187. Module loading keeps the r187 ABI checks but ignores only the first vermagic release-name token so a label change alone cannot reject an otherwise matching module.'
