@@ -75,15 +75,25 @@ if [[ "$GX_SUSFS" == 1 ]]; then
   python3 scripts/gx/adapt-ida-414-no-xarray.py
 fi
 
-# Preserve the exact working #228 KSUN runtime behavior on both no-SUSFS and
-# SUSFS lanes. Run these after SUSFS mutation so nothing can overwrite them.
 if [[ "$GX_ROOT" == "ksun" ]]; then
-  # Inject ksud post-fs-data/services lifecycle into init.rc reads so Zygisk and
-  # other modules start normally during boot.
+  # Preserve #228's proven module lifecycle path on both KSUN lanes. This must
+  # run after SUSFS mutation so the init.rc hook cannot be overwritten.
   python3 scripts/gx/apply-ksun-legacy-lifecycle-hooks.py
-  # Present stock-like SELinux context/access/status results to normal apps,
-  # while keeping KSUN's real modified policy active inside the kernel.
-  python3 scripts/gx/apply-ksun-dirtysepolicy-hide.py
+
+  if [[ "$GX_SUSFS" == "0" ]]; then
+    # Official legacy lacks a complete DirtySepolicy userspace view, so the
+    # working #228 no-SUSFS lane carries our narrow 4.14 parity shim.
+    python3 scripts/gx/apply-ksun-dirtysepolicy-hide.py
+  else
+    # sidex legacy-susfs-v2 already carries its own context/setprocattr/AVC and
+    # fake-status hiding implementation. Do not stack the #228 shim on top of
+    # the same hooks; verify the native implementation in CI instead.
+    grep -Fq 'ksu_selinux_transaction_write' KernelSU-Next/kernel/feature/selinux_hide.c
+    grep -Fq 'ksu_hide_setprocattr' KernelSU-Next/kernel/feature/selinux_hide.c
+    grep -Fq 'fake_status->sequence = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
+    grep -Fq 'fake_status->policyload = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
+    echo '[N45][KSUN-SUSFS] native sidex SELinux hide retained'
+  fi
 fi
 
 echo "[GXT] variant preparation complete: $GX_VARIANT"
