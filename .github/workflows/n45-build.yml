@@ -14,6 +14,7 @@ on:
       - miatoll-nexus45-bp-xxksu-nosusfs
       - miatoll-nexus45-bp-ksun-nosusfs
       - gxterkernl-joyeuse-4.14.357-rev187
+      - gxterkernl-joyeuse-rev187-xxksu33020
   workflow_dispatch:
 
 permissions:
@@ -90,7 +91,7 @@ jobs:
           exit "$status"
 
       - name: Verify clean rev187 identity
-        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187'
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187' || github.ref_name == 'gxterkernl-joyeuse-rev187-xxksu33020'
         run: |
           set -euo pipefail
           internal='4.14.357-Gxterkernl-joyeuse-rev187'
@@ -122,6 +123,15 @@ jobs:
           grep -Fq 'rev187 clean-name compatibility' kernel/module.c
           grep -Fq 'strcpy(tmp.release, "Gxterkernl-joyeuse-4.14.357-rev187")' kernel/sys.c
 
+          if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33020' ]]; then
+            source gx-sources.lock
+            test "$XXKSU_TAG" = 'v3.3.0-20'
+            test "$XXKSU_COMMIT" = '43e9bc2a5634ed5eb2be40268bdd4526eca6fd44'
+            grep -R -m1 -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+3([^0-9]|$)' KernelSU/kernel KernelSU/userspace 2>/dev/null
+            grep -Fq 'static atomic_t throne_tracker_running = ATOMIC_INIT(0);' KernelSU/kernel/manager/throne_tracker.c
+            ! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
+          fi
+
           source .gx-variant
           zip="artifacts/$GX_ZIP"
           test -s "$zip"
@@ -130,6 +140,10 @@ jobs:
           md5sum "$zip" > "$zip.md5"
           printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ninternal_uts_release=%s\nuname_display=%s\nidentity_mode=clean-version-first-internal\nmodule_compat=ignore-release-token-only\nruntime_root_behavior=preserved-from-r187\n' \
             "$internal" "$display" > "artifacts/${display}.release-info.txt"
+          if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33020' ]]; then
+            source gx-sources.lock
+            printf 'xxksu_tag=%s\nxxksu_commit=%s\nxxksu_uapi=3\n' "$XXKSU_TAG" "$XXKSU_COMMIT" >> "artifacts/${display}.release-info.txt"
+          fi
 
       - name: Upload failed-build diagnostics
         if: always()
