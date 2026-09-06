@@ -14,7 +14,7 @@ rm -rf drivers/kernelsu
 SETUP_URL="https://raw.githubusercontent.com/backslashxx/KernelSU/${XXKSU_COMMIT}/kernel/setup.sh"
 echo "[N45] integrating backslashxx KernelSU ${XXKSU_TAG} (${XXKSU_COMMIT})"
 
-# Run the setup script from the pinned commit.  Newer upstream setup scripts may
+# Run the setup script from the pinned commit. Newer upstream setup scripts may
 # shallow-clone the current default branch, so recover the exact object below
 # instead of ever accepting whatever HEAD happens to be today.
 set +e
@@ -39,16 +39,22 @@ if [[ "$actual" != "$XXKSU_COMMIT" ]]; then
   exit 4
 fi
 
-# Fetch and validate the named release tag too.  This catches an accidental SHA
-# typo even if the commit itself exists.
-git -C KernelSU fetch --force --depth=1 origin "refs/tags/${XXKSU_TAG}:refs/tags/${XXKSU_TAG}"
-tag_commit="$(git -C KernelSU rev-list -n1 "$XXKSU_TAG")"
-if [[ "$tag_commit" != "$XXKSU_COMMIT" ]]; then
-  echo "xxKSU tag mismatch: ${XXKSU_TAG} -> ${tag_commit}, expected ${XXKSU_COMMIT}" >&2
-  exit 4
+# Some backslashxx release labels (including v3.3.0-20) are published as
+# release names without a matching Git tag ref. The exact commit pin is the
+# authoritative driver identity. If a tag ref exists, verify it too; otherwise
+# continue only after the exact SHA check above has succeeded.
+if git -C KernelSU ls-remote --exit-code --tags origin "refs/tags/${XXKSU_TAG}" >/dev/null 2>&1; then
+  git -C KernelSU fetch --force --depth=1 origin "refs/tags/${XXKSU_TAG}:refs/tags/${XXKSU_TAG}"
+  tag_commit="$(git -C KernelSU rev-list -n1 "$XXKSU_TAG")"
+  if [[ "$tag_commit" != "$XXKSU_COMMIT" ]]; then
+    echo "xxKSU tag mismatch: ${XXKSU_TAG} -> ${tag_commit}, expected ${XXKSU_COMMIT}" >&2
+    exit 4
+  fi
+else
+  echo "[N45] xxKSU tag ref ${XXKSU_TAG} is not published; exact commit pin remains authoritative"
 fi
 
-# v3.3.0-20 is the UAPI-v3 driver generation.  Refuse to silently build a
+# v3.3.0-20 is the UAPI-v3 driver generation. Refuse to silently build a
 # UAPI-v2 tree while claiming the new release.
 if ! grep -R -m1 -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+3([^0-9]|$)' KernelSU/kernel KernelSU/userspace 2>/dev/null; then
   echo "xxKSU ${XXKSU_TAG} does not expose expected KERNEL_SU_UAPI_VERSION=3" >&2
