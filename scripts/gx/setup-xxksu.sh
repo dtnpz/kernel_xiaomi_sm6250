@@ -13,7 +13,25 @@ rm -rf drivers/kernelsu
 
 SETUP_URL="https://raw.githubusercontent.com/backslashxx/KernelSU/${XXKSU_COMMIT}/kernel/setup.sh"
 echo "[N45] integrating backslashxx KernelSU ${XXKSU_TAG} (${XXKSU_COMMIT})"
+
+# Run the setup script from the pinned commit.  Newer upstream setup scripts may
+# shallow-clone the current default branch, so recover the exact object below
+# instead of ever accepting whatever HEAD happens to be today.
+set +e
 curl -fL --retry 3 --retry-delay 2 "$SETUP_URL" | sh -s -- "$XXKSU_COMMIT"
+setup_status=${PIPESTATUS[1]}
+set -e
+
+if [[ ! -d KernelSU/.git ]]; then
+  echo "xxKSU setup did not create KernelSU git checkout (setup status $setup_status)" >&2
+  exit 4
+fi
+
+if ! git -C KernelSU cat-file -e "${XXKSU_COMMIT}^{commit}" 2>/dev/null; then
+  echo "[N45] pinned xxKSU object missing from shallow clone; fetching exact commit"
+  git -C KernelSU fetch --no-tags --depth=1 origin "$XXKSU_COMMIT"
+fi
+git -C KernelSU checkout --detach --force "$XXKSU_COMMIT"
 
 actual="$(git -C KernelSU rev-parse HEAD)"
 if [[ "$actual" != "$XXKSU_COMMIT" ]]; then
@@ -21,8 +39,28 @@ if [[ "$actual" != "$XXKSU_COMMIT" ]]; then
   exit 4
 fi
 
-# Miatoll runtime adaptation: never run manager discovery synchronously on the
-# packages.list observer and never spawn a high-priority scanner per event.
+# Fetch and validate the named release tag too.  This catches an accidental SHA
+# typo even if the commit itself exists.
+git -C KernelSU fetch --force --depth=1 origin "refs/tags/${XXKSU_TAG}:refs/tags/${XXKSU_TAG}"
+tag_commit="$(git -C KernelSU rev-list -n1 "$XXKSU_TAG")"
+if [[ "$tag_commit" != "$XXKSU_COMMIT" ]]; then
+  echo "xxKSU tag mismatch: ${XXKSU_TAG} -> ${tag_commit}, expected ${XXKSU_COMMIT}" >&2
+  exit 4
+fi
+
+# v3.3.0-20 is the UAPI-v3 driver generation.  Refuse to silently build a
+# UAPI-v2 tree while claiming the new release.
+if ! grep -R -m1 -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+3([^0-9]|$)' KernelSU/kernel KernelSU/userspace 2>/dev/null; then
+  echo "xxKSU ${XXKSU_TAG} does not expose expected KERNEL_SU_UAPI_VERSION=3" >&2
+  grep -R -n -m3 'KERNEL_SU_UAPI_VERSION' KernelSU 2>/dev/null || true
+  exit 4
+fi
+
+echo "[N45] pinned xxKSU ${XXKSU_TAG} UAPI3 checkout verified: $actual"
+
+# Preserve r187's Miatoll runtime adaptation: never run manager discovery
+# synchronously on the packages.list observer and never spawn a high-priority
+# scanner per event.
 python3 scripts/gx/adapt-xxksu-throne-worker.py
 
 python3 <<'PY'
@@ -64,8 +102,7 @@ grep -Fxq '# CONFIG_KSU_KPROBES_KSUD is not set' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_LSM_SECURITY_HOOKS=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y' "$DEFCONFIG"
 
-# Validate the current conservative single-flight scheduler, not the obsolete
-# persistent waitqueue implementation from the previous experiment.
+# Validate the same conservative single-flight scheduler used by r187/#218.
 grep -Fq 'static atomic_t throne_tracker_running = ATOMIC_INIT(0);' KernelSU/kernel/manager/throne_tracker.c
 grep -Fq 'atomic_cmpxchg(&throne_tracker_running, 0, 1)' KernelSU/kernel/manager/throne_tracker.c
 grep -Fq 'is_file_existing("/data/system/packages.list.tmp")' KernelSU/kernel/manager/throne_tracker.c
