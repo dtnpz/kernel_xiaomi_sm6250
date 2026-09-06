@@ -60,10 +60,13 @@ if [[ "$GX_ROOT" != none ]]; then
   python3 scripts/gx/strip-modern-ksu-legacy-vendor-hooks.py
 fi
 
-# KSUN no-SUSFS still uses the non-kprobe/manual-hook engine on N45.  Install
-# only the KernelSU hook surface here; do not add any SUSFS source or features.
+# KSUN no-SUSFS uses the official legacy/manual-hook engine on N45. Install
+# only the KernelSU hook surface here; no SUSFS source/features are introduced.
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
   python3 scripts/gx/apply-ksun-manual-hooks.py
+  # Present stock-like SELinux context/access/status results to normal apps,
+  # while keeping KSUN's real modified policy active inside the kernel.
+  python3 scripts/gx/apply-ksun-dirtysepolicy-hide.py
 fi
 
 if [[ "$GX_SUSFS" == 1 ]]; then
