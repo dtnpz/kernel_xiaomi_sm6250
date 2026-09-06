@@ -8,12 +8,18 @@ not part of the sucompat-only adapter:
 
 * vfs_read() so init.rc can be proxied and KERNEL_SU_RC appended;
 * fstat/newfstat return hooks so init sees the appended init.rc size;
-* input_handle_event() for KernelSU safe-mode detection.
+* input_event()/input_inject_event() for KernelSU safe-mode detection.
 
-Without the first two, second-stage/zygote detection can still happen while the
-injected init.rc actions (ksud post-fs-data/services/boot-completed) never
-exist. That leaves service-stage modules such as Zygisk Next only partially
-started or not started at boot.
+Keep the safe-mode callback on the exported/stable input entrypoints rather
+than the private input_handle_event() hot path. Upstream KernelSU made the same
+move when it replaced input_handle_event hooking with input_event plus
+input_inject_event. Besides being a more stable ABI, this keeps KSU out of the
+internal input-core dispatch path used by device/HAL input handling.
+
+Without the first two lifecycle hooks, second-stage/zygote detection can still
+happen while the injected init.rc actions (ksud post-fs-data/services/
+boot-completed) never exist. That leaves service-stage modules such as Zygisk
+Next only partially started or not started at boot.
 """
 from pathlib import Path
 
@@ -138,33 +144,72 @@ extern void ksu_handle_fstat64_ret(unsigned long *fd,
 write(path, s)
 
 
-# drivers/input/input.c -- restore the legacy/manual safe-mode callback that the
-# common stale-hook scrub intentionally removed before this KSUN-specific pass.
+# drivers/input/input.c -- preserve safe-mode detection, but keep the callback
+# out of private input_handle_event(). Upstream moved the hook to the exported
+# input_event()/input_inject_event() entrypoints for the same stable-symbol
+# reason. This is also less invasive to vendor fingerprint/input internals.
 path = "drivers/input/input.c"
 s = read(path)
-if "ksu_handle_input_handle_event(&type, &code, &value);" not in s:
-    s = replace_once(
-        s,
-        "static void input_handle_event(struct input_dev *dev,\n",
-        """#ifdef CONFIG_KSU_MANUAL_HOOK
+call = "ksu_handle_input_handle_event(&type, &code, &value);"
+if call not in s:
+    marker = "void input_event(struct input_dev *dev,\n"
+    if s.count(marker) != 1:
+        raise SystemExit(
+            f"[N45][KSUN-lifecycle] expected one input_event entrypoint, got {s.count(marker)}"
+        )
+    decl = """#ifdef CONFIG_KSU_MANUAL_HOOK
 extern int ksu_handle_input_handle_event(unsigned int *type,
                                          unsigned int *code, int *value);
 #endif
 
-static void input_handle_event(struct input_dev *dev,
-""",
-        "input safe-mode declaration",
-    )
-    s = replace_once(
-        s,
-        "\tint disposition = input_get_disposition(dev, type, code, &value);\n",
-        """\tint disposition = input_get_disposition(dev, type, code, &value);
+"""
+    s = s.replace(marker, decl + marker, 1)
+
+    input_event_old = """{
+\tunsigned long flags;
+
+\tif (is_event_supported(type, dev->evbit, EV_MAX)) {
+"""
+    input_event_new = """{
+\tunsigned long flags;
+
 #ifdef CONFIG_KSU_MANUAL_HOOK
 \tksu_handle_input_handle_event(&type, &code, &value);
 #endif
-""",
-        "input safe-mode callback",
+\tif (is_event_supported(type, dev->evbit, EV_MAX)) {
+"""
+    s = replace_once(
+        s, input_event_old, input_event_new,
+        "stable input_event safe-mode callback",
     )
+
+    inject_marker = "void input_inject_event(struct input_handle *handle,\n"
+    pos = s.find(inject_marker)
+    if pos < 0:
+        raise SystemExit("[N45][KSUN-lifecycle] input_inject_event entrypoint not found")
+    inject_old = """{
+\tstruct input_dev *dev = handle->dev;
+\tstruct input_handle *grab;
+\tunsigned long flags;
+
+\tif (is_event_supported(type, dev->evbit, EV_MAX)) {
+"""
+    inject_new = """{
+\tstruct input_dev *dev = handle->dev;
+\tstruct input_handle *grab;
+\tunsigned long flags;
+
+#ifdef CONFIG_KSU_MANUAL_HOOK
+\tksu_handle_input_handle_event(&type, &code, &value);
+#endif
+\tif (is_event_supported(type, dev->evbit, EV_MAX)) {
+"""
+    tail = s[pos:]
+    if tail.count(inject_old) != 1:
+        raise SystemExit(
+            f"[N45][KSUN-lifecycle] expected one input_inject_event body anchor, got {tail.count(inject_old)}"
+        )
+    s = s[:pos] + tail.replace(inject_old, inject_new, 1)
 write(path, s)
 
 
@@ -177,9 +222,6 @@ checks = {
         "ksu_handle_newfstat_ret(&fd, &statbuf);",
         "ksu_handle_fstat64_ret(&fd, &statbuf);",
     ],
-    "drivers/input/input.c": [
-        "ksu_handle_input_handle_event(&type, &code, &value);",
-    ],
 }
 for filename, needles in checks.items():
     text = read(filename)
@@ -189,4 +231,23 @@ for filename, needles in checks.items():
                 f"[N45][KSUN-lifecycle] verification failed: {filename}: {needle}"
             )
 
-print("[N45][KSUN-lifecycle] init.rc/stat/input manual lifecycle hooks restored")
+# Input hook invariants: exactly two stable-entrypoint calls and zero calls in
+# the private input_handle_event() body.
+s = read("drivers/input/input.c")
+if s.count(call) != 2:
+    raise SystemExit(
+        f"[N45][KSUN-lifecycle] expected two stable input hook calls, got {s.count(call)}"
+    )
+private_start = s.index("static void input_handle_event(struct input_dev *dev,")
+public_start = s.index("void input_event(struct input_dev *dev,", private_start)
+if call in s[private_start:public_start]:
+    raise SystemExit(
+        "[N45][KSUN-lifecycle] private input_handle_event hook unexpectedly present"
+    )
+inject_start = s.index("void input_inject_event(struct input_handle *handle,", public_start)
+if call not in s[public_start:inject_start]:
+    raise SystemExit("[N45][KSUN-lifecycle] input_event safe-mode hook missing")
+if call not in s[inject_start:]:
+    raise SystemExit("[N45][KSUN-lifecycle] input_inject_event safe-mode hook missing")
+
+print("[N45][KSUN-lifecycle] init.rc/stat lifecycle + stable input safe-mode hooks restored")
