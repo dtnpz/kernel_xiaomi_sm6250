@@ -101,6 +101,18 @@ for f in "$IMAGE" "$DTBO" "$DTB" "$CONFIG"; do
   fi
 done
 
+# The toolchain/build host changed the order of the four otherwise byte-identical
+# miatoll overlays relative to the known-good workflow #187 package.  Restore
+# the exact r187 order and require the resulting DTBO image to be byte-identical
+# to the known-good r187 DTBO before it is allowed into AnyKernel.
+python3 scripts/gx/fix-miatoll-dtbo-order.py "$DTBO"
+DTBO_SHA256="$(sha256sum "$DTBO" | awk '{print $1}')"
+EXPECTED_DTBO_SHA256="70527ec48566ecf0f12da13b2ba254c65c2ea6d1d2e930d8891c3cdb60adbe65"
+if [[ "$DTBO_SHA256" != "$EXPECTED_DTBO_SHA256" ]]; then
+  echo "[N45] r187 DTBO identity mismatch after reorder: $DTBO_SHA256" >&2
+  exit 7
+fi
+
 cp "$CONFIG" "$ARTIFACT_DIR/${GX_VARIANT}.config"
 {
   echo "variant=$GX_VARIANT"
@@ -112,6 +124,8 @@ cp "$CONFIG" "$ARTIFACT_DIR/${GX_VARIANT}.config"
   echo "root=${GX_ROOT:-none}"
   echo "susfs=${GX_SUSFS:-0}"
   echo "bp=${GX_BP:-0}"
+  echo "dtbo_sha256=$DTBO_SHA256"
+  echo "dtbo_order=GRAM,EXCALIBUR,JOYEUSE,CURTANA"
 } > "$ARTIFACT_DIR/${GX_VARIANT}.build-info.txt"
 
 cp -a AnyKernel3 "$AK3_WORK"
@@ -160,7 +174,14 @@ for entry in "${required_entries[@]}"; do
   fi
 done
 
+PACKAGED_DTBO_SHA256="$(unzip -p "$ZIP_PATH" dtbo.img | sha256sum | awk '{print $1}')"
+if [[ "$PACKAGED_DTBO_SHA256" != "$EXPECTED_DTBO_SHA256" ]]; then
+  echo "[N45] packaged DTBO identity mismatch: $PACKAGED_DTBO_SHA256" >&2
+  exit 7
+fi
+
 echo "[N45] flash ZIP validation passed: $GX_ZIP"
+echo "[N45] packaged DTBO matches original r187: $PACKAGED_DTBO_SHA256"
 sha256sum "$ZIP_PATH" > "$ZIP_PATH.sha256"
 md5sum "$ZIP_PATH" > "$ZIP_PATH.md5"
 
