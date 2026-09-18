@@ -30,7 +30,7 @@ static atomic_t throne_tracker_pending = ATOMIC_INIT(0);
 static atomic_t throne_tracker_need_full = ATOMIC_INIT(0);
 
 /*
- * N45 / Linux 4.14 scheduling adapter for xxKSU 32602.
+ * N45 / Linux 4.14 scheduling adapter for xxKSU 32631 / v3.3.0-30.
  *
  * Keep throne_tracker_fn() and all manager/crown semantics exactly upstream.
  * Only serialize the expensive scan scheduling:
