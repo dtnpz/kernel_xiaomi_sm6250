@@ -15,10 +15,10 @@ OPENELA_BASE_COMMIT=a76b6a6556353484f6f29572989cd37b6cff90cc
 OPENELA_TARGET_TAG=v4.14.357-openela
 OPENELA_TARGET_COMMIT=1e6347375d088ecc896aabb067131d0f9e3c0575
 
-# backslashxx KernelSU v3.3.0-20 (UAPI v3)
+# backslashxx KernelSU v3.3.0-30 (UAPI v4)
 XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
-XXKSU_TAG=v3.3.0-20
-XXKSU_COMMIT=43e9bc2a5634ed5eb2be40268bdd4526eca6fd44
+XXKSU_TAG=v3.3.0-30
+XXKSU_COMMIT=86fe5e4ef22917b76a38c23cb55aa081570ff561
 
 # KernelSU-Next manager/release target for non-SUSFS builds.
 KSUN_REPO=https://github.com/KernelSU-Next/KernelSU-Next.git
