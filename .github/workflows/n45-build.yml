@@ -92,7 +92,7 @@ jobs:
           exit "$status"
 
       - name: Verify clean rev187 identity
-        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187' || github.ref_name == 'gxterkernl-joyeuse-rev187-xxksu33020'
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187' || github.ref_name == 'gxterkernl-joyeuse-rev187-xxksu33020' || github.ref_name == 'gxterkernl-joyeuse-rev187-xxksu33030'
         run: |
           set -euo pipefail
           internal='4.14.357-Gxterkernl-joyeuse-rev187'
@@ -133,6 +133,15 @@ jobs:
             ! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
           fi
 
+          if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33030' ]]; then
+            source gx-sources.lock
+            test "$XXKSU_TAG" = 'v3.3.0-30'
+            test "$XXKSU_COMMIT" = '86fe5e4ef22917b76a38c23cb55aa081570ff561'
+            grep -R -m1 -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+4([^0-9]|$)' KernelSU/kernel KernelSU/userspace 2>/dev/null
+            grep -Fq 'static atomic_t throne_tracker_running = ATOMIC_INIT(0);' KernelSU/kernel/manager/throne_tracker.c
+            ! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
+          fi
+
           source .gx-variant
           zip="artifacts/$GX_ZIP"
           test -s "$zip"
@@ -144,6 +153,11 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33020' ]]; then
             source gx-sources.lock
             printf 'xxksu_tag=%s\nxxksu_commit=%s\nxxksu_uapi=3\n' "$XXKSU_TAG" "$XXKSU_COMMIT" >> "artifacts/${display}.release-info.txt"
+          fi
+
+          if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33030' ]]; then
+            source gx-sources.lock
+            printf 'xxksu_tag=%s\nxxksu_commit=%s\nxxksu_uapi=4\n' "$XXKSU_TAG" "$XXKSU_COMMIT" >> "artifacts/${display}.release-info.txt"
           fi
 
       - name: Upload failed-build diagnostics
