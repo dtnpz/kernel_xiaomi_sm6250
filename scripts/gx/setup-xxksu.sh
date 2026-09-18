@@ -48,15 +48,15 @@ if [[ "$tag_commit" != "$XXKSU_COMMIT" ]]; then
   exit 4
 fi
 
-# v3.3.0-20 is the UAPI-v3 driver generation.  Refuse to silently build a
-# UAPI-v2 tree while claiming the new release.
-if ! grep -R -m1 -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+3([^0-9]|$)' KernelSU/kernel KernelSU/userspace 2>/dev/null; then
-  echo "xxKSU ${XXKSU_TAG} does not expose expected KERNEL_SU_UAPI_VERSION=3" >&2
+# v3.3.0-30 is the UAPI-v4 driver generation. Refuse to silently build an
+# older UAPI tree while claiming the new release.
+if ! grep -R -m1 -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+4([^0-9]|$)' KernelSU/kernel KernelSU/userspace 2>/dev/null; then
+  echo "xxKSU ${XXKSU_TAG} does not expose expected KERNEL_SU_UAPI_VERSION=4" >&2
   grep -R -n -m3 'KERNEL_SU_UAPI_VERSION' KernelSU 2>/dev/null || true
   exit 4
 fi
 
-echo "[N45] pinned xxKSU ${XXKSU_TAG} UAPI3 checkout verified: $actual"
+echo "[N45] pinned xxKSU ${XXKSU_TAG} UAPI4 checkout verified: $actual"
 
 # Preserve r187's Miatoll runtime adaptation: never run manager discovery
 # synchronously on the packages.list observer and never spawn a high-priority
