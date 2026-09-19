@@ -4,7 +4,7 @@
 ## AnyKernel setup
 # begin properties
 properties() { '
-kernel.string=gxter-Kernel by maintainer zared
+kernel.string=4.14.356-gxt
 do.devicecheck=1
 do.modules=0
 do.systemless=1
