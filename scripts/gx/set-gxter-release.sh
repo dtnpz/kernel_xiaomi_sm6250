@@ -25,34 +25,25 @@ checks = {
     'SUBLEVEL': '356',
 }
 for key, expected in checks.items():
-    match = re.search(rf'^{key}\s*=\s*(\S+)\s*$', s, re.M)
+    match = re.search(rf'^{key}\\s*=\\s*(\\S+)\\s*$', s, re.M)
     if not match or match.group(1) != expected:
         raise SystemExit(f'Unexpected {key}; expected {expected}')
-s, n = re.subn(r'^EXTRAVERSION\s*=.*$', 'EXTRAVERSION =', s, count=1, flags=re.M)
+s, n = re.subn(r'^EXTRAVERSION\\s*=.*$', 'EXTRAVERSION =', s, count=1, flags=re.M)
 if n != 1:
     raise SystemExit('EXTRAVERSION anchor not found')
 m.write_text(s)
 
 p = Path('arch/arm64/configs/vendor/miatoll-perf_defconfig')
 s = p.read_text()
-line = 'CONFIG_LOCALVERSION="-gxt"'
-pat = re.compile(r'^CONFIG_LOCALVERSION=.*$', re.M)
-if pat.search(s):
-    s = pat.sub(line, s, count=1)
-else:
-    s = line + '\n' + s
 
-auto_pat = re.compile(r'^(?:CONFIG_LOCALVERSION_AUTO=.*|# CONFIG_LOCALVERSION_AUTO is not set)
-print('[gxter] kernel release: 4.14.356-gxt')
-PY
-, re.M)
+local_line = 'CONFIG_LOCALVERSION="-gxt"'
+local_pat = re.compile(r'^CONFIG_LOCALVERSION=.*$', re.M)
+s = local_pat.sub(local_line, s, count=1) if local_pat.search(s) else local_line + '\\n' + s
+
 auto_line = '# CONFIG_LOCALVERSION_AUTO is not set'
-if auto_pat.search(s):
-    s = auto_pat.sub(auto_line, s, count=1)
-else:
-    s = auto_line + '\n' + s
+auto_pat = re.compile(r'^(?:CONFIG_LOCALVERSION_AUTO=.*|# CONFIG_LOCALVERSION_AUTO is not set)$', re.M)
+s = auto_pat.sub(auto_line, s, count=1) if auto_pat.search(s) else auto_line + '\\n' + s
 
 p.write_text(s)
-
 print('[gxter] kernel release: 4.14.356-gxt')
 PY
