@@ -1,5 +1,5 @@
 GX_VARIANT="REV187-KSUN"
-GX_ZIP="4.14.357-gxt-KSUN.zip"
+GX_ZIP="gxt-4.14.357-KSUN.zip"
 GX_ROOT="ksun"
 GX_SUSFS="0"
 GX_BP="0"
