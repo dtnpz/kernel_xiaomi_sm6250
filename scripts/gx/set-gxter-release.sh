@@ -13,10 +13,9 @@ fi
 source .gx-variant
 : "${GX_VARIANT:?GX_VARIANT missing}"
 
-python3 - "$GX_VARIANT" <<'PY'
+python3 - <<'PY'
 from pathlib import Path
-import re, sys
-variant = sys.argv[1]
+import re
 
 m = Path('Makefile')
 s = m.read_text()
@@ -36,7 +35,7 @@ m.write_text(s)
 
 p = Path('arch/arm64/configs/vendor/miatoll-perf_defconfig')
 s = p.read_text()
-line = f'CONFIG_LOCALVERSION="-Gxter-{variant}-FuckMiatollCommu"'
+line = 'CONFIG_LOCALVERSION="-gxt"'
 pat = re.compile(r'^CONFIG_LOCALVERSION=.*$', re.M)
 if pat.search(s):
     s = pat.sub(line, s, count=1)
@@ -44,5 +43,5 @@ else:
     s = line + '\n' + s
 p.write_text(s)
 
-print(f'[gxter] kernel release: 4.14.356-Gxter-{variant}-FuckMiatollCommu')
+print('[gxter] kernel release: 4.14.356-gxt')
 PY
