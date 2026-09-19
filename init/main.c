@@ -574,13 +574,23 @@ asmlinkage __visible void __init start_kernel(void)
 	pr_notice("Kernel command line: %s\n", boot_command_line);
 
 	p = NULL;
-	p= strstr(command_line, "androidboot.fpsensor=fpc");
-	if(p) {
-		fpsensor = 1;//fpc fingerprint
-		printk("I am fpc fingerprint");
+	p = strstr(boot_command_line, "androidboot.fpsensor=fpc");
+	if (p) {
+		fpsensor = 1; /* FPC fingerprint */
+		pr_info("fingerprint: bootloader selected FPC\n");
+	} else if (strstr(boot_command_line, "androidboot.fpsensor=gdx") ||
+		   strstr(boot_command_line, "androidboot.fpsensor=goodix")) {
+		fpsensor = 2; /* Goodix fingerprint */
+		pr_info("fingerprint: bootloader selected Goodix\n");
 	} else {
-		fpsensor = 2;//goodix fingerprint
-		printk("I am goodix fingerprint");
+		/*
+		 * Joyeuse uses FPC on the known-good hardware.  Some warm reboots
+		 * intermittently lose androidboot.fpsensor from the command line.
+		 * Do not turn an absent vendor hint into a different fingerprint
+		 * vendor: keep the safe FPC default unless Goodix is explicit.
+		 */
+		fpsensor = 1;
+		pr_warn("fingerprint: androidboot.fpsensor missing/unknown; defaulting to FPC\n");
 	}
 
 	/* parameters may set static keys */
