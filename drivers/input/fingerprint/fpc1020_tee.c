@@ -614,10 +614,14 @@ static int fpc1020_probe(struct platform_device *pdev)
 		goto exit;
 	}
 
-	if(fpsensor != 1){
-                 pr_err("Macle fpc1020_probe failed as fpsensor=%d(1=fp)\n", fpsensor);
-                 return -1;
-         }
+	if (fpsensor == 0) {
+		dev_info(dev, "fingerprint vendor not ready; defer probe\n");
+		return -EPROBE_DEFER;
+	}
+	if (fpsensor != 1) {
+		dev_info(dev, "fpsensor=%d, not FPC\n", fpsensor);
+		return -ENODEV;
+	}
 
 
 	fpc1020->dev = dev;

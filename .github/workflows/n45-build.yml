@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -72,3 +72,27 @@ jobs:
           path: artifacts/
           if-no-files-found: error
           retention-days: 30
+
+
+      - name: Publish fingerprint race fixed NONKSU release
+        if: github.ref_name == 'gxt-4.14.356-nonksu-renamed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source .gx-variant
+          zip="artifacts/$GX_ZIP"
+          test "$GX_ROOT" = "none"
+          test "$GX_ZIP" = "4.14.356-gxt-NONKSU.zip"
+          test -s "$zip"
+          sha256sum "$zip" > "$zip.sha256"
+          md5sum "$zip" > "$zip.md5"
+          tag='4.14.356-gxt-NONKSU'
+          gh release delete "$tag" --cleanup-tag -y >/dev/null 2>&1 || true
+          gh release create "$tag" \
+            "$zip" "$zip.sha256" "$zip.md5" \
+            "artifacts/$GX_VARIANT.config" \
+            "artifacts/$GX_VARIANT.build-info.txt" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --notes 'Fingerprint boot-race fix: FPC and Goodix defer probing until fingerprint vendor detection is ready. Existing 4.14.356-gxt kernel/uname identity is preserved.'
