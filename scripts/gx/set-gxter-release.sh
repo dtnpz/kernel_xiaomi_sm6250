@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel)"
 cd "$ROOT_DIR"
 
-INTERNAL_RELEASE="4.14.357-Gxterkernl-joyeuse-rev187-XXKSU-v3.3.0-30"
-LOCAL_SUFFIX="-Gxterkernl-joyeuse-rev187-XXKSU-v3.3.0-30"
+INTERNAL_RELEASE="4.14.357-gxt"
+LOCAL_SUFFIX="-gxt"
 
 if [[ ! -f .gx-variant ]]; then
   echo "Missing .gx-variant metadata." >&2
@@ -45,7 +45,7 @@ auto_line = '# CONFIG_LOCALVERSION_AUTO is not set'
 s = auto_pat.sub(auto_line, s, count=1) if auto_pat.search(s) else auto_line + '\n' + s
 p.write_text(s)
 
-print(f'[gxter] variant-matched internal kernel release: {expected_release}')
+print(f'[gxt] internal kernel release: {expected_release}')
 PY
 
 # Apply after OpenELA + variant preparation so no later source setup can
