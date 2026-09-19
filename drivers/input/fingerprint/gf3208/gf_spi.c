@@ -657,6 +657,15 @@ static int gf_probe(struct platform_device *pdev)
 	unsigned long minor;
 	int i;
 	pr_info("Macle11 gf probe\n");
+	if (fpsensor == 0) {
+		pr_info("gf_probe: fingerprint vendor not ready; defer probe\n");
+		return -EPROBE_DEFER;
+	}
+	if (fpsensor != 2) {
+		pr_info("gf_probe: fpsensor=%d, not Goodix\n", fpsensor);
+		return -ENODEV;
+	}
+
 	/* Initialize the driver data */
 	INIT_LIST_HEAD(&gf_dev->device_entry);
 #if defined(USE_SPI_BUS)
@@ -817,11 +826,6 @@ static int __init gf_init(void)
 	 * that will key udev/mdev to add/remove /dev nodes.  Last, register
 	 * the driver which manages those device numbers.
 	 */
-	if(fpsensor != 2) {
-    	pr_err(" hml gf_init failed as fpsensor = %d(2=gdx)\n", fpsensor);
-        return -1;
-    }
-
 	BUILD_BUG_ON(N_SPI_MINORS > 256);
 	status = register_chrdev(SPIDEV_MAJOR, CHRD_DRIVER_NAME, &gf_fops);
 	if (status < 0) {
