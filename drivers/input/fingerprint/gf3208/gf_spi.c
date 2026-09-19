@@ -741,10 +741,13 @@ static int gf_probe(struct platform_device *pdev)
 
 	proc_entry = proc_create(PROC_NAME, 0644, NULL, &proc_file_ops);
 	if (NULL == proc_entry) {
-		pr_err("gf3258 Couldn't create proc entry!");
-		return -ENOMEM;
+		/* /proc/hwinfo is diagnostic only.  A name collision must not
+		 * tear down an otherwise working Goodix fingerprint device.
+		 */
+		pr_warn("gf3208: optional /proc/%s unavailable; keeping sensor active\n",
+			PROC_NAME);
 	} else {
-		pr_err("gf3258 Create proc entry success!");
+		pr_info("gf3208: created /proc/%s\n", PROC_NAME);
 	}
 
 	pr_info("version V%d.%d.%02d\n", VER_MAJOR, VER_MINOR, PATCH_LEVEL);
