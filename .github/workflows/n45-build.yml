@@ -46,7 +46,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          display = '4.14.357-gxt'
+          display = 'gxt-4.14.357'
           p = Path('kernel/sys.c')
           s = p.read_text()
           old = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
@@ -96,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           internal='4.14.357-gxt'
-          display='4.14.357-gxt'
+          display='gxt-4.14.357'
           actual="$(cat out/include/config/kernel.release)"
           printf 'internal kernel.release: %s\n' "$actual"
           test "$actual" = "$internal"
@@ -115,7 +115,7 @@ jobs:
           fi
 
           grep -Fq 'rev187 clean-name compatibility' kernel/module.c
-          grep -Fq 'strcpy(tmp.release, "4.14.357-gxt")' kernel/sys.c
+          grep -Fq 'strcpy(tmp.release, "gxt-4.14.357")' kernel/sys.c
 
           if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33020' ]]; then
             source gx-sources.lock
@@ -138,10 +138,10 @@ jobs:
           source .gx-variant
           zip="artifacts/$GX_ZIP"
           test -s "$zip"
-          test "$GX_ZIP" = "4.14.357-gxt-XXKSU.zip"
+          test "$GX_ZIP" = "gxt-4.14.357-XXKSU.zip"
           sha256sum "$zip" > "$zip.sha256"
           md5sum "$zip" > "$zip.md5"
-          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ninternal_uts_release=%s\nuname_display=%s\nidentity_mode=shared-4.14.357-gxt\nmodule_compat=ignore-release-token-only\nruntime_root_behavior=preserved-from-r187\n' \
+          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ninternal_uts_release=%s\nuname_display=%s\nidentity_mode=shared-gxt-display\nmodule_compat=ignore-release-token-only\nruntime_root_behavior=preserved-from-r187\n' \
             "$internal" "$display" > "artifacts/${display}.release-info.txt"
           if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33020' ]]; then
             source gx-sources.lock
