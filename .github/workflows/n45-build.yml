@@ -212,3 +212,26 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "$tag" \
             --notes 'Based on workflow #187 source behavior. Runtime root functionality is preserved. Public build naming and uname output use Gxterkernl-joyeuse-4.14.357-rev187. Internal UTS/vermagic uses the conventional version-first clean identity 4.14.357-Gxterkernl-joyeuse-rev187 with no feature labels. Module loading ignores only the first vermagic release-name token while retaining all remaining vermagic checks and normal symbol-version checks.'
+
+      - name: Publish fingerprint race fixed KSUN release
+        if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187-ksun'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source .gx-variant
+          zip="artifacts/$GX_ZIP"
+          test "$GX_ROOT" = "ksun"
+          test "$GX_ZIP" = "gxt-4.14.357-KSUN.zip"
+          test -s "$zip"
+          sha256sum "$zip" > "$zip.sha256"
+          md5sum "$zip" > "$zip.md5"
+          tag='gxt-4.14.357-KSUN'
+          gh release delete "$tag" --cleanup-tag -y >/dev/null 2>&1 || true
+          gh release create "$tag" \
+            "$zip" "$zip.sha256" "$zip.md5" \
+            "artifacts/$GX_VARIANT.config" \
+            "artifacts/$GX_VARIANT.build-info.txt" \
+            --target "$GITHUB_SHA" \
+            --title "$tag" \
+            --notes 'Fingerprint boot-race fix: FPC and Goodix defer probing until fingerprint vendor detection is ready. Existing internal 4.14.357-gxt and uname/toybox gxt-4.14.357 identity behavior is preserved.'
