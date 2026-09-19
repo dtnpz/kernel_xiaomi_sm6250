@@ -39,13 +39,20 @@ if [[ "$actual" != "$XXKSU_COMMIT" ]]; then
   exit 4
 fi
 
-# Fetch and validate the named release tag too.  This catches an accidental SHA
-# typo even if the commit itself exists.
-git -C KernelSU fetch --force --depth=1 origin "refs/tags/${XXKSU_TAG}:refs/tags/${XXKSU_TAG}"
-tag_commit="$(git -C KernelSU rev-list -n1 "$XXKSU_TAG")"
-if [[ "$tag_commit" != "$XXKSU_COMMIT" ]]; then
-  echo "xxKSU tag mismatch: ${XXKSU_TAG} -> ${tag_commit}, expected ${XXKSU_COMMIT}" >&2
-  exit 4
+# The exact commit is the authoritative pin.  Upstream may remove or rename a
+# release tag after publication, so validate the tag when it still exists but
+# do not make build reproducibility depend on the continued existence of that
+# mutable remote ref.
+if git -C KernelSU ls-remote --exit-code --tags origin "refs/tags/${XXKSU_TAG}" >/dev/null 2>&1; then
+  git -C KernelSU fetch --force --depth=1 origin "refs/tags/${XXKSU_TAG}:refs/tags/${XXKSU_TAG}"
+  tag_commit="$(git -C KernelSU rev-parse "${XXKSU_TAG}^{commit}")"
+  if [[ "$tag_commit" != "$XXKSU_COMMIT" ]]; then
+    echo "xxKSU tag mismatch: ${XXKSU_TAG} -> ${tag_commit}, expected ${XXKSU_COMMIT}" >&2
+    exit 4
+  fi
+  echo "[N45] xxKSU tag ${XXKSU_TAG} still resolves to pinned commit"
+else
+  echo "[N45] xxKSU tag ${XXKSU_TAG} is unavailable upstream; using exact pinned commit ${XXKSU_COMMIT}"
 fi
 
 # v3.3.0-30 is the UAPI-v4 driver generation. Refuse to silently build an
