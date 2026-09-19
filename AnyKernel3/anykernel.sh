@@ -4,7 +4,7 @@
 ## AnyKernel setup
 # begin properties
 properties() { '
-kernel.string=Gxterkernl joyeuse rev187 KSUN by zared
+kernel.string=gxt-4.14.357
 do.devicecheck=1
 do.modules=0
 do.systemless=1
