@@ -9,6 +9,7 @@ on:
       - miatoll-nexus45-bp
       - miatoll-nexus45-bp-xxksu
       - miatoll-nexus45-bp-ksun
+      - gxt-4.14.356-nonksu-renamed
   workflow_dispatch:
 
 permissions:
@@ -52,6 +53,17 @@ jobs:
           print('[netbpfload-kver] netbpfload sees real 4.14; bpfloader/netd keep 5.4 spoof')
           PY
           bash scripts/gx/build-n45.sh
+
+      - name: Verify renamed 4.14.356 NONKSU identity
+        if: github.ref_name == 'gxt-4.14.356-nonksu-renamed'
+        run: |
+          set -euo pipefail
+          test "$(cat out/include/config/kernel.release)" = "4.14.356-gxt"
+          grep -Fxq '#define UTS_RELEASE "4.14.356-gxt"' out/include/generated/utsrelease.h
+          source .gx-variant
+          test "$GX_ROOT" = "none"
+          test "$GX_ZIP" = "4.14.356-gxt-NONKSU.zip"
+          test -s "artifacts/$GX_ZIP"
 
       - name: Upload flashable ZIP and build metadata
         uses: actions/upload-artifact@v4
