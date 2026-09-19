@@ -45,7 +45,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          display = 'Gxterkernl-joyeuse-4.14.357-rev187'
+          display = 'Gxterkernl-joyeuse-4.14.357-rev187-KSUN'
           p = Path('kernel/sys.c')
           s = p.read_text()
           old = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
@@ -71,7 +71,7 @@ jobs:
           if anchor not in s:
               raise SystemExit('uname display anchor not found')
           p.write_text(s.replace(anchor, replacement, 1))
-          print(f'[uname] uname/toybox display={display}; system UTS keeps version-first clean identity')
+          print(f'[uname] uname/toybox display={display}; system UTS uses matching KSUN identity')
           PY
 
           set +e
@@ -94,19 +94,12 @@ jobs:
         if: github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187' || github.ref_name == 'gxterkernl-joyeuse-4.14.357-rev187-ksun'
         run: |
           set -euo pipefail
-          internal='4.14.357-Gxterkernl-joyeuse-rev187'
-          display='Gxterkernl-joyeuse-4.14.357-rev187'
+          internal='4.14.357-Gxterkernl-joyeuse-rev187-KSUN'
+          display='Gxterkernl-joyeuse-4.14.357-rev187-KSUN'
           actual="$(cat out/include/config/kernel.release)"
           printf 'internal kernel.release: %s\n' "$actual"
           test "$actual" = "$internal"
           grep -Fxq "#define UTS_RELEASE \"$internal\"" out/include/generated/utsrelease.h
-
-          case "$actual" in
-            *XXKSU*|*NOSUSFS*|*SUSFS*)
-              echo "forbidden feature label leaked into internal UTS/vermagic identity: $actual" >&2
-              exit 8
-              ;;
-          esac
 
           image="out/arch/arm64/boot/Image.gz"
           strings_file="$RUNNER_TEMP/rev187-image.strings"
@@ -121,7 +114,7 @@ jobs:
           fi
 
           grep -Fq 'rev187 clean-name compatibility' kernel/module.c
-          grep -Fq 'strcpy(tmp.release, "Gxterkernl-joyeuse-4.14.357-rev187")' kernel/sys.c
+          grep -Fq 'strcpy(tmp.release, "Gxterkernl-joyeuse-4.14.357-rev187-KSUN")' kernel/sys.c
 
           source .gx-variant
           zip="artifacts/$GX_ZIP"
@@ -129,7 +122,7 @@ jobs:
           test "$GX_ZIP" = "${display}.zip"
           sha256sum "$zip" > "$zip.sha256"
           md5sum "$zip" > "$zip.md5"
-          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ninternal_uts_release=%s\nuname_display=%s\nidentity_mode=clean-version-first-internal\nmodule_compat=ignore-release-token-only\nroot_lane=%s\n' \
+          printf 'source_workflow_187_commit=2642d3182aa72b7524f85b6f8b9a4b389c0aa23e\nsource_behavior=r187-input-test\ninternal_uts_release=%s\nuname_display=%s\nidentity_mode=variant-matched-version-first-internal\nmodule_compat=ignore-release-token-only\nroot_lane=%s\n' \
             "$internal" "$display" "$GX_ROOT" > "artifacts/${display}.release-info.txt"
 
       - name: Verify KSUN DirtySepolicy parity
