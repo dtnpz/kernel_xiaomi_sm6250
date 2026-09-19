@@ -41,6 +41,17 @@ if pat.search(s):
     s = pat.sub(line, s, count=1)
 else:
     s = line + '\n' + s
+
+auto_pat = re.compile(r'^(?:CONFIG_LOCALVERSION_AUTO=.*|# CONFIG_LOCALVERSION_AUTO is not set)
+print('[gxter] kernel release: 4.14.356-gxt')
+PY
+, re.M)
+auto_line = '# CONFIG_LOCALVERSION_AUTO is not set'
+if auto_pat.search(s):
+    s = auto_pat.sub(auto_line, s, count=1)
+else:
+    s = auto_line + '\n' + s
+
 p.write_text(s)
 
 print('[gxter] kernel release: 4.14.356-gxt')
