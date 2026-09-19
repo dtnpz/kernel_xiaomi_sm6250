@@ -727,10 +727,13 @@ static int fpc1020_probe(struct platform_device *pdev)
 
 	proc_entry = proc_create(PROC_NAME, 0644, NULL, &proc_file_fpc_ops);
 	if (NULL == proc_entry) {
-		pr_err("fpc1020 Couldn't create proc entry!");
-		return -ENOMEM;
+		/* /proc/hwinfo is diagnostic only.  Do not fail an otherwise
+		 * successful fingerprint probe if another component already owns it.
+		 */
+		pr_warn("fpc1020: optional /proc/%s unavailable; keeping sensor active\n",
+			PROC_NAME);
 	} else {
-		pr_err("fpc1020 Create proc entry success!");
+		pr_info("fpc1020: created /proc/%s\n", PROC_NAME);
 	}
 
 
