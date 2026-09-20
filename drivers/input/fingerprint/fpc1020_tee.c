@@ -342,26 +342,48 @@ static DEVICE_ATTR(irq_enable, S_IWUSR | S_IRUSR | S_IRGRP | S_IWGRP , NULL, irq
 
 static int hw_reset(struct fpc1020_data *fpc1020)
 {
-	int irq_gpio;
+	int irq_gpio = 0;
+	int attempt;
+	int rc = 0;
 	struct device *dev = fpc1020->dev;
-	int rc = select_pin_ctl(fpc1020, "fpc1020_reset_active");
 
-	if (rc)
-		goto exit;
-	usleep_range(RESET_HIGH_SLEEP1_MIN_US, RESET_HIGH_SLEEP1_MAX_US);
+	/*
+	 * Some joyeuse warm boots expose the FPC GPIOs before the sensor has
+	 * finished becoming ready.  A single reset can therefore observe IRQ
+	 * low even though the sensor becomes usable shortly afterwards.  Retry
+	 * the electrical reset a few times, but keep the platform driver bound
+	 * if IRQ is still low so the userspace/TEE soft-reset path can recover.
+	 */
+	for (attempt = 1; attempt <= 3; attempt++) {
+		rc = select_pin_ctl(fpc1020, "fpc1020_reset_active");
+		if (rc)
+			goto exit;
+		usleep_range(RESET_HIGH_SLEEP1_MIN_US, RESET_HIGH_SLEEP1_MAX_US);
 
-	rc = select_pin_ctl(fpc1020, "fpc1020_reset_reset");
-	if (rc)
-		goto exit;
-	usleep_range(RESET_LOW_SLEEP_MIN_US, RESET_LOW_SLEEP_MAX_US);
+		rc = select_pin_ctl(fpc1020, "fpc1020_reset_reset");
+		if (rc)
+			goto exit;
+		usleep_range(RESET_LOW_SLEEP_MIN_US, RESET_LOW_SLEEP_MAX_US);
 
-	rc = select_pin_ctl(fpc1020, "fpc1020_reset_active");
-	if (rc)
-		goto exit;
-	usleep_range(RESET_HIGH_SLEEP2_MIN_US, RESET_HIGH_SLEEP2_MAX_US);
+		rc = select_pin_ctl(fpc1020, "fpc1020_reset_active");
+		if (rc)
+			goto exit;
+		usleep_range(RESET_HIGH_SLEEP2_MIN_US, RESET_HIGH_SLEEP2_MAX_US);
 
-	irq_gpio = gpio_get_value(fpc1020->irq_gpio);
-	dev_info(dev, "IRQ after reset %d=%d\n",fpc1020->irq_gpio, irq_gpio);
+		irq_gpio = gpio_get_value(fpc1020->irq_gpio);
+		dev_info(dev, "IRQ after reset %d=%d (attempt %d/3)\n",
+			 fpc1020->irq_gpio, irq_gpio, attempt);
+		if (irq_gpio)
+			return 0;
+
+		if (attempt < 3) {
+			dev_warn(dev, "FPC IRQ still low after reset; retrying\n");
+			usleep_range(1250, 1500);
+		}
+	}
+
+	dev_warn(dev, "FPC IRQ remained low after reset retries; leaving driver bound for TEE recovery\n");
+	return 0;
 
 exit:
 	return rc;
