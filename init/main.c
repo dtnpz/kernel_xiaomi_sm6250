@@ -538,11 +538,61 @@ static void __init mm_init(void)
 
 int fpsensor=1;
 
+#define FP_SENSOR_BOOTARG "androidboot.fpsensor="
+#define FP_SENSOR_FPC "fpc"
+
+static void __init force_joyeuse_fpc_bootarg(void)
+{
+	char *arg;
+	char *value;
+	char *end;
+	size_t old_len;
+	size_t new_len = strlen(FP_SENSOR_FPC);
+	size_t tail_len;
+	size_t cmd_len;
+	const char suffix[] = " " FP_SENSOR_BOOTARG FP_SENSOR_FPC;
+
+	arg = strstr(boot_command_line, FP_SENSOR_BOOTARG);
+	if (!arg) {
+		cmd_len = strlen(boot_command_line);
+		if (cmd_len + strlen(suffix) >= COMMAND_LINE_SIZE) {
+			pr_warn("fingerprint: no room to append FPC boot hint; kernel still forces FPC\n");
+			return;
+		}
+
+		memcpy(boot_command_line + cmd_len, suffix, sizeof(suffix));
+		pr_warn("fingerprint: boot hint missing; appended androidboot.fpsensor=fpc\n");
+		return;
+	}
+
+	value = arg + strlen(FP_SENSOR_BOOTARG);
+	end = strchr(value, ' ');
+	if (!end)
+		end = value + strlen(value);
+	old_len = end - value;
+
+	if (old_len == new_len && !strncmp(value, FP_SENSOR_FPC, new_len)) {
+		pr_info("fingerprint: userspace boot hint already selects FPC\n");
+		return;
+	}
+
+	cmd_len = strlen(boot_command_line);
+	if (new_len > old_len &&
+	    cmd_len + (new_len - old_len) >= COMMAND_LINE_SIZE) {
+		pr_warn("fingerprint: no room to normalize boot hint; kernel still forces FPC\n");
+		return;
+	}
+
+	tail_len = strlen(end) + 1;
+	memmove(value + new_len, end, tail_len);
+	memcpy(value, FP_SENSOR_FPC, new_len);
+	pr_warn("fingerprint: normalized androidboot.fpsensor to fpc before userspace snapshot\n");
+}
+
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
-	char *p=NULL;
 
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
@@ -562,6 +612,7 @@ asmlinkage __visible void __init start_kernel(void)
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
 	mm_init_cpumask(&init_mm);
+	force_joyeuse_fpc_bootarg();
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
@@ -573,24 +624,9 @@ asmlinkage __visible void __init start_kernel(void)
 
 	pr_notice("Kernel command line: %s\n", boot_command_line);
 
-	p = NULL;
-	p = strstr(boot_command_line, "androidboot.fpsensor=fpc");
-	if (p) {
-		fpsensor = 1; /* FPC fingerprint */
-		pr_info("fingerprint: bootloader selected FPC\n");
-	} else if (strstr(boot_command_line, "androidboot.fpsensor=gdx") ||
-		   strstr(boot_command_line, "androidboot.fpsensor=goodix")) {
-		fpsensor = 1; /* FPC fingerprint */
-		pr_warn("fingerprint: ignoring incorrect Goodix boot hint; forcing FPC\n");
-	} else {
-		/*
-		 * Joyeuse uses FPC on the known-good hardware.  Bootloader sensor
-		 * hints are not authoritative for this build, so keep FPC selected
-		 * when androidboot.fpsensor is missing or unknown.
-		 */
-		fpsensor = 1;
-		pr_warn("fingerprint: androidboot.fpsensor missing/unknown; keeping joyeuse FPC selection\n");
-	}
+	/* Joyeuse is FPC-only for these builds; keep kernel and userspace aligned. */
+	fpsensor = 1;
+	pr_info("fingerprint: joyeuse FPC selection active\n");
 
 	/* parameters may set static keys */
 	jump_label_init();
