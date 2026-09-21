@@ -155,6 +155,8 @@ jobs:
             grep -Fq 'GXT_KSU_IOCTL_GET_VERSION_TAG' KernelSU/kernel/supercall/dispatch.c
             grep -Fq 'static atomic_t throne_tracker_running = ATOMIC_INIT(0);' KernelSU/kernel/manager/throne_tracker.c
             ! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
+            grep -Fq 'if (adj <= 200 ||' drivers/android/simple_lmk.c
+            ! grep -Fq 'if (adj < 0 ||' drivers/android/simple_lmk.c
           fi
 
           source .gx-variant
