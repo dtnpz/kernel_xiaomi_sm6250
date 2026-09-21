@@ -21,8 +21,9 @@ def require(path: Path, needle: str) -> None:
 
 # Runtime manager personality. The kernel keeps one active manager appid, just
 # like upstream KernelSU, but remembers which verified signer owns that appid.
-# This lets one kernel expose the ABI expected by that manager instead of
-# pretending UAPI2 (KernelSU-Next) and UAPI4 (xxKSU) are interchangeable.
+# Both current managers speak UAPI4, but they remain separate verified
+# personalities because KernelSU-Next also probes its 98/99 informational
+# ioctls and has a distinct release signer.
 identity = KERNEL / "manager/manager_identity.h"
 replace_once(
     identity,
@@ -35,7 +36,7 @@ enum gxt_ksu_manager_kind {
 	GXT_KSU_MANAGER_KSUN = 2,
 };
 
-#define GXT_KSU_UAPI_KSUN 2
+#define GXT_KSU_UAPI_KSUN 4
 #define GXT_KSU_UAPI_XXKSU 4
 
 extern enum gxt_ksu_manager_kind gxt_ksu_manager_kind;
@@ -130,8 +131,8 @@ replacement = f"""enum gxt_ksu_manager_kind gxt_ksu_detect_manager_apk(char *pat
 
 	/*
 	 * Preserve every manager identity already accepted by xxKSU and map it to
-	 * the UAPI4 personality.  KernelSU-Next is deliberately a separate signer
-	 * and is mapped to the UAPI2 personality.
+	 * the UAPI4 personality.  KernelSU-Next v3.4.0 is deliberately a separate
+	 * signer and is also UAPI4, with its own 98/99 compatibility personality.
 	 */
 	char buf[KSU_MAX_PACKAGE_NAME];
 	constexpr char official_pkg[] = "me.weishu.kernelsu";
@@ -148,7 +149,7 @@ replacement = f"""enum gxt_ksu_manager_kind gxt_ksu_detect_manager_apk(char *pat
 			"484fcba6e6c43b1fb09700633bf2fb4758f13cb0b2f4457b80d075084b26c588"))
 		return GXT_KSU_MANAGER_XXKSU;
 
-	/* rifsxd/KernelSU-Next release signer: UAPI2 on the pinned legacy lane. */
+	/* rifsxd/KernelSU-Next v3.4.0 release signer: UAPI4 manager personality. */
 	if (check_v2_signature(path, {KSUN_CERT_SIZE},
 			"{KSUN_CERT_HASH}"))
 		return GXT_KSU_MANAGER_KSUN;
@@ -218,19 +219,19 @@ replace_once(
     dispatch,
     "	cmd.uapi_version = KERNEL_SU_UAPI_VERSION;\n",
     """	/*
-	 * One kernel, two manager personalities:
-	 *   KernelSU-Next -> UAPI2
-	 *   xxKSU          -> UAPI4
+	 * One kernel, two verified manager personalities:
+	 *   KernelSU-Next v3.4.0 -> UAPI4 + KSUN informational ioctls
+	 *   xxKSU v3.3.0-30      -> UAPI4 native backend
 	 * Unknown/not-yet-crowned defaults to the native xxKSU UAPI4 backend.
 	 */
 	cmd.uapi_version = gxt_ksu_manager_uapi_version();
 """
 )
 
-# KernelSU-Next manager uses two informational ioctls not present in the xxKSU
-# UAPI4 header. Add compatibility commands locally without weakening xxKSU's
-# own UAPI or changing common command numbers.
-compat_defs = """/* GXT MultiKSU: KernelSU-Next UAPI2 compatibility ioctls. */
+# KernelSU-Next v3.4.0 uses two informational ioctls not present in the pinned
+# xxKSU UAPI4 header. Add those commands locally without changing the common
+# UAPI4 command table.
+compat_defs = """/* GXT MultiKSU: KernelSU-Next v3.4.0 compatibility ioctls. */
 struct gxt_ksu_get_hook_mode_cmd {
 	char mode[16];
 };
@@ -268,7 +269,7 @@ static int gxt_do_get_version_tag(void __user *arg)
 	    current_uid().val != 0)
 		return -ENOTTY;
 
-	strscpy(cmd.tag, "gxt-multiksu", sizeof(cmd.tag));
+	strscpy(cmd.tag, "v3.4.0-gxt-multiksu", sizeof(cmd.tag));
 	if (copy_to_user(arg, &cmd, sizeof(cmd)))
 		return -EFAULT;
 	return 0;
@@ -288,7 +289,7 @@ replace_once(dispatch, sentinel, entries + sentinel)
 # Build-time proof. These assertions intentionally fail if the pinned upstream
 # shape changes instead of silently producing a fake multi-manager build.
 for path, needle in [
-    (identity, "GXT_KSU_UAPI_KSUN 2"),
+    (identity, "GXT_KSU_UAPI_KSUN 4"),
     (identity, "GXT_KSU_UAPI_XXKSU 4"),
     (sign_c, KSUN_CERT_HASH),
     (throne, "gxt_ksu_set_manager_identity"),
@@ -298,4 +299,4 @@ for path, needle in [
 ]:
     require(path, needle)
 
-print("[GXT] MultiKSU manager routing ready: KSUN=UAPI2, xxKSU=UAPI4")
+print("[GXT] MultiKSU manager routing ready: KSUN v3.4.0=UAPI4, xxKSU v3.3.0-30=UAPI4")
