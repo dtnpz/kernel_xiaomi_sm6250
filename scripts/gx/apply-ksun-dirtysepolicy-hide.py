@@ -301,7 +301,7 @@ int ksu_selinux_hide_setprocattr_pre(const char *name, const void *value,
     s = replace_once(s, anchor, anchor + parity,
                      "N45 DirtySepolicy parity helper block")
 
-    old_status = """\tstruct selinux_kernel_status *new_status = page_address(new_page);
+    old_status_v1 = """\tstruct selinux_kernel_status *new_status = page_address(new_page);
 \tmemcpy(new_status, status, sizeof(*status));
 \tif (ksu_late_loaded && !new_status->enforcing) {
 \t\t/*
@@ -311,6 +311,18 @@ int ksu_selinux_hide_setprocattr_pre(const char *name, const void *value,
 \t\t */
 \t\tnew_status->enforcing = 1;
 \t\tnew_status->sequence = 4;
+\t}
+"""
+    old_status_v2 = """\tstruct selinux_kernel_status *new_status = page_address(new_page);
+\tmemcpy(new_status, status, sizeof(*status));
+\tif (ksu_late_loaded && !new_status->enforcing) {
+\t\t/*
+\t\t * In late_load mode we may be loaded after setenforce 0.
+\t\t * Adjust sequence to look like a normal enforcing boot.
+\t\t * Assumes setenforce 0 was called exactly once.
+\t\t */
+\t\tnew_status->enforcing = 1;
+\t\tnew_status->sequence = new_status->policyload ? 4 : 0;
 \t}
 """
     new_status = """\tstruct selinux_kernel_status *new_status = page_address(new_page);
@@ -325,8 +337,14 @@ int ksu_selinux_hide_setprocattr_pre(const char *name, const void *value,
 \tnew_status->policyload = 0;
 #endif
 """
-    s = replace_once(s, old_status, new_status,
-                     "stock SELinux status counters")
+    status_anchors = [old_status_v1, old_status_v2]
+    matches = [anchor for anchor in status_anchors if anchor in s]
+    if len(matches) != 1:
+        raise SystemExit(
+            f"[N45][KSUN-dirtyhide] expected one supported stock SELinux "
+            f"status-counter shape, got {len(matches)}"
+        )
+    s = s.replace(matches[0], new_status, 1)
 
     s = replace_once(
         s,
