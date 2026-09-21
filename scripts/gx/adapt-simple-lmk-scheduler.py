@@ -4,6 +4,17 @@ from pathlib import Path
 p = Path("drivers/android/simple_lmk.c")
 s = p.read_text()
 
+# Android assigns background music/perceptible foreground-service work
+# oom_score_adj=200.  Simple LMK must exhaust ordinary background/cached
+# processes before considering anything the user is actively hearing/seeing.
+old_victim_floor = """		if (adj < 0 ||
+"""
+new_victim_floor = """		if (adj <= 200 ||
+"""
+if old_victim_floor not in s:
+    raise SystemExit("simple_lmk victim floor did not match expected source")
+s = s.replace(old_victim_floor, new_victim_floor, 1)
+
 old_reclaim = '''static int simple_lmk_reclaim_thread(void *data)
 {
 	/* Use maximum RT priority */
@@ -50,6 +61,7 @@ checks = [
     "set_user_nice(current, 1);",
     "set_task_rt_prio(t, 1);",
     "if (pressure == 100)",
+    "if (adj <= 200 ||",
 ]
 for marker in checks:
     if marker not in s:
@@ -59,6 +71,8 @@ if "set_task_rt_prio(current, MAX_RT_PRIO - 1);" in s:
     raise SystemExit("simple_lmk reclaim thread still uses RR99")
 if "set_task_rt_prio(current, MAX_RT_PRIO - 2);" in s:
     raise SystemExit("simple_lmk reaper thread still uses RR98")
+if "if (adj < 0 ||" in s:
+    raise SystemExit("simple_lmk still allows perceptible/foreground victims")
 
 p.write_text(s)
-print("[N45] adapted Simple LMK control threads from RT99/98 to CFS nice 0/+1")
+print("[N45] adapted Simple LMK: CFS control workers + protect oom_score_adj <= 200")
