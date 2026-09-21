@@ -140,11 +140,13 @@ jobs:
             source gx-sources.lock
             test "$XXKSU_TAG" = 'v3.3.0-30'
             test "$XXKSU_COMMIT" = '86fe5e4ef22917b76a38c23cb55aa081570ff561'
-            test "$KSUN_MANAGER_UAPI" = '2'
+            test "$KSUN_RELEASE_TAG" = 'v3.4.0'
+            test "$KSUN_RELEASE_COMMIT" = '1a879d6a866f80b1fa1c1009a2ffa747873cbb5e'
+            test "$KSUN_MANAGER_UAPI" = '4'
             test "$XXKSU_MANAGER_UAPI" = '4'
             test "$KSUN_MANAGER_CERT_SIZE" = '0x3e6'
             grep -Fq "$KSUN_MANAGER_CERT_HASH" KernelSU/kernel/manager/apk_sign.c
-            grep -Fq 'GXT_KSU_UAPI_KSUN 2' KernelSU/kernel/manager/manager_identity.h
+            grep -Fq 'GXT_KSU_UAPI_KSUN 4' KernelSU/kernel/manager/manager_identity.h
             grep -Fq 'GXT_KSU_UAPI_XXKSU 4' KernelSU/kernel/manager/manager_identity.h
             grep -Fq 'gxt_ksu_detect_manager_apk' KernelSU/kernel/manager/apk_sign.c
             grep -Fq 'gxt_ksu_set_manager_identity' KernelSU/kernel/manager/throne_tracker.c
@@ -180,8 +182,8 @@ jobs:
 
           if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-4.14.357-rev187-multiksu' ]]; then
             source gx-sources.lock
-            printf 'root_lane=multiksu\nnative_backend=xxksu\nxxksu_tag=%s\nxxksu_commit=%s\nxxksu_uapi=%s\nksun_uapi=%s\nksun_manager_cert_size=%s\nksun_manager_cert_hash=%s\nmanager_routing=verified-signer-runtime-personality\n' \
-              "$XXKSU_TAG" "$XXKSU_COMMIT" "$XXKSU_MANAGER_UAPI" "$KSUN_MANAGER_UAPI" \
+            printf 'root_lane=multiksu\nnative_backend=xxksu\nxxksu_tag=%s\nxxksu_commit=%s\nxxksu_uapi=%s\nksun_release_tag=%s\nksun_release_commit=%s\nksun_uapi=%s\nksun_manager_cert_size=%s\nksun_manager_cert_hash=%s\nmanager_routing=verified-signer-runtime-personality\n' \
+              "$XXKSU_TAG" "$XXKSU_COMMIT" "$XXKSU_MANAGER_UAPI" "$KSUN_RELEASE_TAG" "$KSUN_RELEASE_COMMIT" "$KSUN_MANAGER_UAPI" \
               "$KSUN_MANAGER_CERT_SIZE" "$KSUN_MANAGER_CERT_HASH" >> "artifacts/${display}.release-info.txt"
           fi
 
@@ -271,4 +273,4 @@ jobs:
             "artifacts/gxt-4.14.357.release-info.txt" \
             --target "$GITHUB_SHA" \
             --title "$tag" \
-            --notes 'Experimental MultiKSU lane. Native engine is pinned backslashxx KernelSU v3.3.0-30 (UAPI4). Manager APK signer detection selects runtime personality: KernelSU-Next signer reports/uses UAPI2 compatibility and xxKSU-compatible signers use UAPI4. KernelSU-Next hook-mode/version-tag compatibility ioctls are provided without replacing the xxKSU backend. OpenELA 4.14.357 delta is sourced directly from the official OpenELA repository.'
+            --notes 'Experimental MultiKSU lane. Native engine is pinned backslashxx KernelSU v3.3.0-30 (UAPI4). KernelSU-Next v3.4.0 and xxKSU-compatible managers both use UAPI4; verified signer detection retains separate runtime personalities so KernelSU-Next also receives its hook-mode/version-tag compatibility ioctls. OpenELA 4.14.357 is applied as the complete official OpenELA delta rather than a version-only bump.'
