@@ -178,7 +178,11 @@ jobs:
           require_line 'selinuxfs transaction pre-hook' 'ksu_selinux_hide_transaction_pre' security/selinux/selinuxfs.c
           require_line 'selinuxfs transaction post-hook' 'ksu_selinux_hide_transaction_post' security/selinux/selinuxfs.c
           require_line 'setprocattr hidden-context hook' 'ksu_selinux_hide_setprocattr_pre' security/selinux/hooks.c
-          echo '[KSUN] DirtySepolicy context/access/status/manual-hook surface verified'
+          require_line 'Simple LMK perceptible-app guard' 'if (adj <= 200 ||' drivers/android/simple_lmk.c
+          if grep -Fq 'if (adj < 0 ||' drivers/android/simple_lmk.c; then
+            fail 'Simple LMK still allows perceptible/foreground apps as victims'
+          fi
+          echo '[KSUN] DirtySepolicy + perceptible-app LMK protection verified'
 
       - name: Upload failed-build diagnostics
         if: always()
