@@ -71,8 +71,9 @@ echo "[N45] pinned xxKSU ${XXKSU_TAG} UAPI4 checkout verified: $actual"
 python3 scripts/gx/adapt-xxksu-throne-worker.py
 
 # MultiKSU keeps xxKSU UAPI4 as the native engine, but detects the installed
-# verified manager signer and exposes the matching manager personality:
-# KernelSU-Next -> UAPI2, xxKSU -> UAPI4.
+# verified manager signer and exposes the matching manager personality.
+# KernelSU-Next v3.4.0 and xxKSU v3.3.0-30 both speak UAPI4; signer identity
+# still selects KSUN-only informational compatibility behavior.
 python3 scripts/gx/adapt-multiksu-manager.py
 
 python3 <<'PY'
@@ -124,9 +125,9 @@ grep -Fq 'set_user_nice(current, 10);' KernelSU/kernel/manager/throne_tracker.c
 ! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
 ! grep -Fq 'packages.list did not stabilize; deferring scan' KernelSU/kernel/manager/throne_tracker.c
 
-grep -Fq 'GXT_KSU_UAPI_KSUN 2' KernelSU/kernel/manager/manager_identity.h
+grep -Fq 'GXT_KSU_UAPI_KSUN 4' KernelSU/kernel/manager/manager_identity.h
 grep -Fq 'GXT_KSU_UAPI_XXKSU 4' KernelSU/kernel/manager/manager_identity.h
 grep -Fq '79e590113c4c4c0c222978e413a5faa801666957b1212a328e46c00c69821bf7' KernelSU/kernel/manager/apk_sign.c
 grep -Fq 'cmd.uapi_version = gxt_ksu_manager_uapi_version();' KernelSU/kernel/supercall/dispatch.c
 
-echo "[N45] backslashxx KernelSU MultiKSU integration ready (KSUN UAPI2 / xxKSU UAPI4)"
+echo "[N45] backslashxx KernelSU MultiKSU integration ready (KSUN v3.4.0 UAPI4 / xxKSU v3.3.0-30 UAPI4)"
