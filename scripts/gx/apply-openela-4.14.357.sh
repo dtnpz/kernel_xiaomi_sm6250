@@ -20,7 +20,7 @@ esac
 # The 4.14.357 eLTS release is six commits ahead of the exact 4.14.356
 # OpenELA point N45 already carries. Do not fake this by only changing
 # SUBLEVEL: apply the five fixes and then the official version bump.
-ELTS_REPO="FlopKernel-Series/flop_trinket-mi_kernel"
+ELTS_REPO="openela/kernel-lts"
 ELTS_SERIES=(
   81cba5e1051d71a71d8d94f502c36b6cd05e5a95
   70649db1605f0502f5b73bd74ba57c90bed354b4
