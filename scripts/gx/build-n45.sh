@@ -71,6 +71,9 @@ mkdir -p "$OUT_DIR"
 make O="$OUT_DIR" "$DEFCONFIG"
 CONFIG="$OUT_DIR/.config"
 bash scripts/gx/validate-generated-config.sh "$CONFIG"
+if [[ "${GX_MULTI_KSU:-0}" == "1" ]]; then
+  bash scripts/gx/audit-multiksu-sepolicy.sh "$CONFIG"
+fi
 
 make -j"$(nproc --all)" O="$OUT_DIR" \
   ARCH=arm64 \

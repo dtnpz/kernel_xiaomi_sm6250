@@ -142,17 +142,29 @@ jobs:
             test "$XXKSU_COMMIT" = '86fe5e4ef22917b76a38c23cb55aa081570ff561'
             test "$KSUN_RELEASE_TAG" = 'v3.4.0'
             test "$KSUN_RELEASE_COMMIT" = '1a879d6a866f80b1fa1c1009a2ffa747873cbb5e'
+            test "$KSU_MANAGER_UAPI" = '4'
             test "$KSUN_MANAGER_UAPI" = '4'
             test "$XXKSU_MANAGER_UAPI" = '4'
+            test "$KOWSU_MANAGER_UAPI" = '4'
+            test "$MAMBOSU_MANAGER_UAPI" = '4'
+            test "$RESUKISU_MANAGER_UAPI" = '4'
             test "$KSUN_MANAGER_CERT_SIZE" = '0x3e6'
             grep -Fq "$KSUN_MANAGER_CERT_HASH" KernelSU/kernel/manager/apk_sign.c
-            grep -Fq 'GXT_KSU_UAPI_KSUN 4' KernelSU/kernel/manager/manager_identity.h
-            grep -Fq 'GXT_KSU_UAPI_XXKSU 4' KernelSU/kernel/manager/manager_identity.h
+            grep -Fq "$KOWSU_MANAGER_CERT_HASH" KernelSU/kernel/manager/apk_sign.c
+            grep -Fq "$MAMBOSU_MANAGER_CERT_HASH" KernelSU/kernel/manager/apk_sign.c
+            grep -Fq "$RESUKISU_MANAGER_CERT_HASH" KernelSU/kernel/manager/apk_sign.c
+            for macro in KSU XXKSU KSUN KOWSU MAMBOSU RESUKISU; do
+              grep -Fq "GXT_KSU_UAPI_${macro} 4" KernelSU/kernel/manager/manager_identity.h
+            done
             grep -Fq 'gxt_ksu_detect_manager_apk' KernelSU/kernel/manager/apk_sign.c
             grep -Fq 'gxt_ksu_set_manager_identity' KernelSU/kernel/manager/throne_tracker.c
             grep -Fq 'cmd.uapi_version = gxt_ksu_manager_uapi_version();' KernelSU/kernel/supercall/dispatch.c
             grep -Fq 'GXT_KSU_IOCTL_GET_HOOK_MODE' KernelSU/kernel/supercall/dispatch.c
             grep -Fq 'GXT_KSU_IOCTL_GET_VERSION_TAG' KernelSU/kernel/supercall/dispatch.c
+            grep -Fq 'GXT_KSU_IOCTL_GET_FULL_VERSION' KernelSU/kernel/supercall/dispatch.c
+            grep -Fq 'GXT_KSU_IOCTL_HOOK_TYPE' KernelSU/kernel/supercall/dispatch.c
+            grep -Fq 'return "Manipulated";' KernelSU/kernel/supercall/dispatch.c
+            bash scripts/gx/audit-multiksu-sepolicy.sh out/.config
             grep -Fq 'static atomic_t throne_tracker_running = ATOMIC_INIT(0);' KernelSU/kernel/manager/throne_tracker.c
             ! grep -Fq 'set_user_nice(current, -10);' KernelSU/kernel/manager/throne_tracker.c
             grep -Fq 'if (adj <= 200 ||' drivers/android/simple_lmk.c
@@ -187,6 +199,8 @@ jobs:
             printf 'root_lane=multiksu\nnative_backend=xxksu\nxxksu_tag=%s\nxxksu_commit=%s\nxxksu_uapi=%s\nksun_release_tag=%s\nksun_release_commit=%s\nksun_uapi=%s\nksun_manager_cert_size=%s\nksun_manager_cert_hash=%s\nmanager_routing=verified-signer-runtime-personality\n' \
               "$XXKSU_TAG" "$XXKSU_COMMIT" "$XXKSU_MANAGER_UAPI" "$KSUN_RELEASE_TAG" "$KSUN_RELEASE_COMMIT" "$KSUN_MANAGER_UAPI" \
               "$KSUN_MANAGER_CERT_SIZE" "$KSUN_MANAGER_CERT_HASH" >> "artifacts/${display}.release-info.txt"
+            printf 'supported_managers=KernelSU,xxKSU,KernelSU-Next,KowSU,MamboSU,ReSukiSU\nmanager_uapi=4\ncompat_ioctls=98,99,100,101\nsepolicy_audit=4.14-lock-or-stop_machine,avc-reset,restore-cpumask\n' \
+              >> "artifacts/${display}.release-info.txt"
           fi
 
       - name: Upload failed-build diagnostics
@@ -275,4 +289,4 @@ jobs:
             "artifacts/gxt-4.14.357.release-info.txt" \
             --target "$GITHUB_SHA" \
             --title "$tag" \
-            --notes 'Experimental MultiKSU lane. Native engine is pinned backslashxx KernelSU v3.3.0-30 (UAPI4). KernelSU-Next v3.4.0 and xxKSU-compatible managers both use UAPI4; verified signer detection retains separate runtime personalities so KernelSU-Next also receives its hook-mode/version-tag compatibility ioctls. OpenELA 4.14.357 is applied as the complete official OpenELA delta rather than a version-only bump.'
+            --notes 'MultiKSU lane. Native engine is pinned backslashxx KernelSU v3.3.0-30 (UAPI4). Verified signer routing supports KernelSU, xxKSU, KernelSU-Next, KowSU, MamboSU and ReSukiSU; all checked managers currently use UAPI4. Compatibility ioctls 98/99 and 100/101 report the actual backend/hook mode. The 4.14 SELinux mutation path is CI-audited for policy locking or stop_machine fallback, AVC reset, and CPU-affinity restoration. OpenELA 4.14.357 is the complete official delta.'
