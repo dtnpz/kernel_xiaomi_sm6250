@@ -349,6 +349,7 @@ static int gxt_do_get_hook_type(void __user *arg)
 	return 0;
 }
 
+"""
 marker2 = "static int do_nuke_ext4_sysfs(void __user *arg)\n"
 replace_once(dispatch, marker2, compat_handlers + marker2)
 
