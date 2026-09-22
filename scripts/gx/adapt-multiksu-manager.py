@@ -286,6 +286,7 @@ struct gxt_ksu_hook_type_cmd {
 	char hook_type[32];
 };
 
+#define GXT_KSU_BACKEND_VERSION_TAG "v3.3.0-30"
 #define GXT_KSU_IOCTL_GET_HOOK_MODE _IOC(_IOC_READ, 'K', 98, 0)
 #define GXT_KSU_IOCTL_GET_VERSION_TAG _IOC(_IOC_READ, 'K', 99, 0)
 #define GXT_KSU_IOCTL_GET_FULL_VERSION _IOC(_IOC_READ, 'K', 100, 0)
@@ -320,7 +321,7 @@ static int gxt_do_get_version_tag(void __user *arg)
 {
 	struct gxt_ksu_get_version_tag_cmd cmd = {0};
 
-	strscpy(cmd.tag, KERNEL_SU_VERSION_TAG, sizeof(cmd.tag));
+	strscpy(cmd.tag, GXT_KSU_BACKEND_VERSION_TAG, sizeof(cmd.tag));
 	if (copy_to_user(arg, &cmd, sizeof(cmd)))
 		return -EFAULT;
 	return 0;
@@ -331,7 +332,7 @@ static int gxt_do_get_full_version(void __user *arg)
 	struct gxt_ksu_get_full_version_cmd cmd = {0};
 
 	snprintf(cmd.version_full, sizeof(cmd.version_full),
-		 "%s-gxt-multiksu-uapi%u", KERNEL_SU_VERSION_TAG,
+		 "%s-gxt-multiksu-uapi%u", GXT_KSU_BACKEND_VERSION_TAG,
 		 gxt_ksu_manager_uapi_version());
 	if (copy_to_user(arg, &cmd, sizeof(cmd)))
 		return -EFAULT;
