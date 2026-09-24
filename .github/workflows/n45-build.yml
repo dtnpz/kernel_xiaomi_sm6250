@@ -92,7 +92,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish KSUN NBP Android 15 release
+      - name: Publish KSUN NBP Android 17 release
         if: github.ref_name == 'miatoll-nexus45-nbp-ksun'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -115,4 +115,4 @@ jobs:
             "artifacts/$GX_VARIANT.build-info.txt" \
             --target "$GITHUB_SHA" \
             --title "$tag" \
-            --notes 'OpenELA 4.14.357 KSUN + SUSFS NBP build for Miatoll/Joyeuse. AnyKernel installer accepts Android 11 through Android 15. NBP keeps GX_BP=0; this release is generated only after the kernel build and flash ZIP validation succeed.'
+            --notes 'OpenELA 4.14.357 KSUN + SUSFS NBP build for Miatoll/Joyeuse. AnyKernel installer accepts Android 11 through Android 17. NBP keeps GX_BP=0; this release is generated only after the kernel build and flash ZIP validation succeed.'

@@ -15,7 +15,7 @@ device.name2=excalibur
 device.name3=curtana
 device.name4=gram
 device.name5=joyeuse
-supported.versions=11.0-15.0
+supported.versions=11.0-17.0
 supported.patchlevels=
 '; } # end properties
 
