@@ -2,6 +2,7 @@
 # osm0sis @ xda-developers
 
 ## AnyKernel setup
+# Android 15 installer compatibility
 # begin properties
 properties() { '
 kernel.string=gxt-4.14.357
