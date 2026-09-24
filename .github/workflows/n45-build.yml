@@ -289,4 +289,4 @@ jobs:
             "artifacts/gxt-4.14.357.release-info.txt" \
             --target "$GITHUB_SHA" \
             --title "$tag" \
-            --notes 'MultiKSU lane. Native engine is pinned backslashxx KernelSU v3.3.0-30 (UAPI4). Verified signer routing supports KernelSU, xxKSU, KernelSU-Next, KowSU, MamboSU and ReSukiSU; all checked managers currently use UAPI4. Compatibility ioctls 98/99 and 100/101 report the actual backend/hook mode. The 4.14 SELinux mutation path is CI-audited for policy locking or stop_machine fallback, AVC reset, and CPU-affinity restoration. OpenELA 4.14.357 is the complete official delta.'
+            --notes 'MultiKSU lane. Native engine is pinned backslashxx KernelSU v3.3.0-30 (UAPI4). Verified signer routing supports KernelSU, xxKSU, KernelSU-Next, KowSU, MamboSU and ReSukiSU; all checked managers currently use UAPI4. Compatibility ioctls 98/99 and 100/101 report the actual backend/hook mode. The 4.14 SELinux mutation path is CI-audited for policy locking or stop_machine fallback, AVC reset, and CPU-affinity restoration. OpenELA 4.14.357 is the complete official delta. AnyKernel installer accepts Android 11 through Android 17.'

@@ -2,7 +2,7 @@
 # osm0sis @ xda-developers
 
 ## AnyKernel setup
-# Android 15 installer compatibility
+# Android 17 installer compatibility
 # begin properties
 properties() { '
 kernel.string=gxt-4.14.357
@@ -16,7 +16,7 @@ device.name2=excalibur
 device.name3=curtana
 device.name4=gram
 device.name5=joyeuse
-supported.versions=11.0-15.0
+supported.versions=11.0-17.0
 supported.patchlevels=
 '; } # end properties
 
