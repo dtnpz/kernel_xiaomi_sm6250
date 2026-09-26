@@ -3881,6 +3881,35 @@ bail:
 	return err;
 }
 
+static int fastrpc_get_dsp_capability(struct fastrpc_ioctl_capability *cap,
+				     void *param, struct fastrpc_file *fl)
+{
+	struct fastrpc_ioctl_dsp_capabilities dsp_cap = { 0 };
+	int err = 0;
+
+	K_COPY_FROM_USER(err, 0, cap, param, sizeof(*cap));
+	if (err)
+		goto bail;
+	VERIFY(err, cap->domain < NUM_CHANNELS);
+	if (err) {
+		err = -ECHRNG;
+		goto bail;
+	}
+
+	cap->capability = 0;
+	if (cap->attribute_ID < FASTRPC_MAX_DSP_ATTRIBUTES) {
+		dsp_cap.domain = cap->domain;
+		err = fastrpc_get_info_from_kernel(&dsp_cap, fl);
+		if (err)
+			goto bail;
+		cap->capability = dsp_cap.dsp_attributes[cap->attribute_ID];
+	}
+
+	K_COPY_TO_USER(err, 0, param, cap, sizeof(*cap));
+bail:
+	return err;
+}
+
 static int fastrpc_update_cdsp_support(struct fastrpc_file *fl)
 {
 	struct fastrpc_ioctl_dsp_capabilities *dsp_query;
@@ -3916,6 +3945,7 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 		struct fastrpc_ioctl_perf perf;
 		struct fastrpc_ioctl_control cp;
 		struct fastrpc_ioctl_dsp_capabilities dsp_cap;
+		struct fastrpc_ioctl_capability cap;
 	} p;
 	union {
 		struct fastrpc_ioctl_mmap mmap;
@@ -4078,8 +4108,11 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int ioctl_num,
 				isquerydone = true;
 		}
 		break;
-	case FASTRPC_IOCTL_GET_DSP_INFO:
+	case FASTRPC_IOCTL_GET_DSP_INFO_LEGACY:
 		err = fastrpc_get_dsp_info(&p.dsp_cap, param, fl);
+		break;
+	case FASTRPC_IOCTL_GET_DSP_INFO:
+		err = fastrpc_get_dsp_capability(&p.cap, param, fl);
 		break;
 	default:
 		err = -ENOTTY;
