@@ -1256,6 +1256,14 @@ for task_work_path in (
     p.write_text(text.replace("TWA_RESUME", "true"))
     print(f"[KSUN340-414] adapted: 4.14 task_work notify API ({task_work_path})")
 
+# Linux 4.14 keeps min()/min_t() in linux/kernel.h; minmax.h is newer.
+replace_once(
+    "KernelSU-Next/kernel/sulog/event.c",
+    "#include <linux/minmax.h>\n",
+    "#include <linux/kernel.h>\n",
+    "SULog 4.14 min/max declarations",
+)
+
 
 # Linux 4.14 stores security_hook_heads as list_head lists, while newer
 # KernelSU-Next expects hlist_head on its pre-static-call path.  Keep the
