@@ -66,6 +66,7 @@ fi
 # userspace to stall during boot. v3.4.0's selinux_hide uses a backup policy
 # view instead and starts disabled until ksud applies the persisted feature.
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
+  python3 scripts/gx/adapt-ksun340-414.py
   grep -Fq 'static const __u32 KERNEL_SU_UAPI_VERSION = 4;' KernelSU-Next/uapi/supercall.h
   if grep -Fq 'blocked transaction_write from uid=' KernelSU-Next/kernel/feature/selinux_hide.c; then
     echo "legacy selinux_hide transaction blocker must not be present" >&2
