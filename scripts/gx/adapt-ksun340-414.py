@@ -72,6 +72,236 @@ replace_once(
     "syscall event bridge uaccess declaration",
 )
 
+# Keep the v3.4.0 get_wrapper_fd path on Linux 4.14. Its wrapper fops need
+# version guards around members introduced after this kernel, and its secure
+# anon-file fallback needs the alloc_file_pseudo implementation from 4.14 APIs.
+file_wrapper_path = "KernelSU-Next/kernel/infra/file_wrapper.c"
+replace_once(
+    file_wrapper_path,
+    "#include <linux/cred.h>\n",
+    "#include <linux/cred.h>\n#include <linux/dcache.h>\n",
+    "file wrapper dcache API declaration",
+)
+replace_once(
+    file_wrapper_path,
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)\nstatic int ksu_wrapper_iopoll",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)\n#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)\nstatic int ksu_wrapper_iopoll",
+    "file wrapper iopoll version guard",
+)
+replace_once(
+    file_wrapper_path,
+    "#endif\n\n#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)\nstatic int ksu_wrapper_iterate",
+    "#endif\n#endif\n\n#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 6, 0)\nstatic int ksu_wrapper_iterate",
+    "file wrapper iopoll 4.14 guard close",
+)
+replace_once(
+    file_wrapper_path,
+    "static __poll_t ksu_wrapper_poll(struct file *fp, struct poll_table_struct *pts)\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)\n"
+    "static __poll_t ksu_wrapper_poll(struct file *fp, struct poll_table_struct *pts)\n"
+    "#else\n"
+    "static unsigned int ksu_wrapper_poll(struct file *fp, struct poll_table_struct *pts)\n"
+    "#endif\n",
+    "file wrapper poll return type",
+)
+replace_once(
+    file_wrapper_path,
+    "    p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)\n"
+    "    p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;\n"
+    "#endif\n",
+    "file wrapper iopoll member guard",
+)
+replace_once(
+    file_wrapper_path,
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)\n"
+    "    p->ops.fop_flags = fp->f_op->fop_flags;\n"
+    "#else\n"
+    "    p->ops.mmap_supported_flags = fp->f_op->mmap_supported_flags;\n"
+    "#endif\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)\n"
+    "    p->ops.fop_flags = fp->f_op->fop_flags;\n"
+    "#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)\n"
+    "    p->ops.mmap_supported_flags = fp->f_op->mmap_supported_flags;\n"
+    "#endif\n",
+    "file wrapper mmap flags member guard",
+)
+replace_once(
+    file_wrapper_path,
+    "    p->ops.remap_file_range =\n"
+    "        fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL;\n"
+    "    p->ops.fadvise = fp->f_op->fadvise ? ksu_wrapper_fadvise : NULL;\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)\n"
+    "    p->ops.remap_file_range =\n"
+    "        fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL;\n"
+    "#else\n"
+    "    p->ops.clone_file_range =\n"
+    "        fp->f_op->clone_file_range ? ksu_wrapper_clone_file_range : NULL;\n"
+    "    p->ops.dedupe_file_range =\n"
+    "        fp->f_op->dedupe_file_range ? ksu_wrapper_dedupe_file_range : NULL;\n"
+    "#endif\n"
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)\n"
+    "    p->ops.fadvise = fp->f_op->fadvise ? ksu_wrapper_fadvise : NULL;\n"
+    "#endif\n",
+    "file wrapper clone, remap, and fadvise members",
+)
+# Linux 4.14 dispatches clone through the source fops and dedupe through the
+# destination fops. Unwrap either endpoint before delegating to the real file.
+replace_once(
+    file_wrapper_path,
+    "struct ksu_file_wrapper {\n"
+    "    struct file *orig;\n"
+    "    struct file_operations ops;\n"
+    "};\n",
+    "struct ksu_file_wrapper {\n"
+    "    struct file *orig;\n"
+    "    struct file_operations ops;\n"
+    "};\n\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0)\n"
+    "static int ksu_wrapper_release(struct inode *inode, struct file *filp);\n\n"
+    "static struct file *ksu_unwrap_file(struct file *fp)\n"
+    "{\n"
+    "    if (fp->f_op && fp->f_op->release == ksu_wrapper_release)\n"
+    "        return ((struct ksu_file_wrapper *)fp->private_data)->orig;\n"
+    "    return fp;\n"
+    "}\n"
+    "#endif\n",
+    "file wrapper 4.14 endpoint unwrapping",
+)
+replace_once(
+    file_wrapper_path,
+    "// no REMAP_FILE_DEDUP: use file_in\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 20, 0)\n"
+    "// no REMAP_FILE_DEDUP: use file_in\n",
+    "file wrapper remap callback version guard",
+)
+replace_once(
+    file_wrapper_path,
+    "static int ksu_wrapper_fadvise(struct file *fp, loff_t off1, loff_t off2,\n",
+    "#endif\n\n"
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)\n"
+    "static int ksu_wrapper_fadvise(struct file *fp, loff_t off1, loff_t off2,\n",
+    "file wrapper remap callback guard close",
+)
+replace_once(
+    file_wrapper_path,
+    "    return -EINVAL;\n}\n\nstatic void ksu_release_file_wrapper(struct ksu_file_wrapper *data);\n",
+    "    return -EINVAL;\n}\n"
+    "#endif\n\n"
+    "static void ksu_release_file_wrapper(struct ksu_file_wrapper *data);\n",
+    "file wrapper fadvise callback guard close",
+)
+replace_once(
+    file_wrapper_path,
+    "static ssize_t ksu_wrapper_copy_file_range(struct file *file_in, loff_t pos_in,\n"
+    "                                           struct file *file_out,\n"
+    "                                           loff_t pos_out, size_t len,\n"
+    "                                           unsigned int flags)\n"
+    "{\n"
+    "    struct ksu_file_wrapper *data = file_out->private_data;\n"
+    "    struct file *orig = data->orig;\n"
+    "    return orig->f_op->copy_file_range(file_in, pos_in, orig, pos_out, len,\n"
+    "                                       flags);\n"
+    "}\n\n",
+    "static ssize_t ksu_wrapper_copy_file_range(struct file *file_in, loff_t pos_in,\n"
+    "                                           struct file *file_out,\n"
+    "                                           loff_t pos_out, size_t len,\n"
+    "                                           unsigned int flags)\n"
+    "{\n"
+    "    struct ksu_file_wrapper *data = file_out->private_data;\n"
+    "    struct file *orig = data->orig;\n"
+    "    return orig->f_op->copy_file_range(file_in, pos_in, orig, pos_out, len,\n"
+    "                                       flags);\n"
+    "}\n\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0)\n"
+    "static int ksu_wrapper_clone_file_range(struct file *file_in, loff_t pos_in,\n"
+    "                                        struct file *file_out, loff_t pos_out,\n"
+    "                                        u64 len)\n"
+    "{\n"
+    "    struct file *orig_in = ksu_unwrap_file(file_in);\n"
+    "    struct file *orig_out = ksu_unwrap_file(file_out);\n"
+    "    if (!orig_in->f_op->clone_file_range)\n"
+    "        return -EOPNOTSUPP;\n"
+    "    return orig_in->f_op->clone_file_range(orig_in, pos_in, orig_out,\n"
+    "                                            pos_out, len);\n"
+    "}\n\n"
+    "static ssize_t ksu_wrapper_dedupe_file_range(struct file *file_in, u64 off_in,\n"
+    "                                            u64 len, struct file *file_out,\n"
+    "                                            u64 off_out)\n"
+    "{\n"
+    "    struct file *orig_in = ksu_unwrap_file(file_in);\n"
+    "    struct file *orig_out = ksu_unwrap_file(file_out);\n"
+    "    if (!orig_out->f_op->dedupe_file_range)\n"
+    "        return -EOPNOTSUPP;\n"
+    "    return orig_out->f_op->dedupe_file_range(orig_in, off_in, len,\n"
+    "                                             orig_out, off_out);\n"
+    "}\n"
+    "#endif\n\n",
+    "file wrapper clone and dedupe compatibility callbacks",
+)
+
+# The older secure-file path exists below 5.16; backport its allocator with
+# 4.14's d_alloc_pseudo() and alloc_file() primitives.
+replace_once(
+    file_wrapper_path,
+    "// Borrow kernel's anon_inode_mnt, so that we don't need to mount one by ourselves.\n",
+    "static struct file *ksu_alloc_file_pseudo_compat(\n"
+    "    struct inode *inode, struct vfsmount *mnt, const char *name, int flags,\n"
+    "    const struct file_operations *fops)\n"
+    "{\n"
+    "    static const struct dentry_operations anon_ops = { .d_dname = simple_dname };\n"
+    "    struct qstr this = QSTR_INIT(name, strlen(name));\n"
+    "    struct path path;\n"
+    "    struct file *file;\n\n"
+    "    path.dentry = d_alloc_pseudo(mnt->mnt_sb, &this);\n"
+    "    if (!path.dentry)\n"
+    "        return ERR_PTR(-ENOMEM);\n"
+    "    if (!mnt->mnt_sb->s_d_op)\n"
+    "        d_set_d_op(path.dentry, &anon_ops);\n"
+    "    path.mnt = mntget(mnt);\n"
+    "    d_instantiate(path.dentry, inode);\n"
+    "    file = alloc_file(&path, flags, fops);\n"
+    "    if (IS_ERR(file)) {\n"
+    "        ihold(inode);\n"
+    "        path_put(&path);\n"
+    "    }\n"
+    "    return file;\n"
+    "}\n\n"
+    "// Borrow kernel's anon_inode_mnt, so that we don't need to mount one by ourselves.\n",
+    "file wrapper alloc_file_pseudo backport",
+)
+replace_once(
+    file_wrapper_path,
+    "    const struct qstr qname = QSTR_INIT(name, strlen(name));\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)\n"
+    "    const struct qstr qname = QSTR_INIT(name, strlen(name));\n"
+    "#endif\n",
+    "file wrapper anon security qstr version guard",
+)
+replace_once(
+    file_wrapper_path,
+    "    error = security_inode_init_security_anon(inode, &qname, context_inode);\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 0)\n"
+    "    error = security_inode_init_security_anon(inode, &qname, context_inode);\n"
+    "#else\n"
+    "    error = context_inode ? -EOPNOTSUPP : 0;\n"
+    "#endif\n",
+    "file wrapper 4.14 anon inode security initialization",
+)
+replace_once(
+    file_wrapper_path,
+    "    file = alloc_file_pseudo(inode, anon_inode_mnt, name,\n",
+    "    file = ksu_alloc_file_pseudo_compat(inode, anon_inode_mnt, name,\n",
+    "file wrapper 4.14 pseudo-file allocator",
+)
+replace_once(
+    file_wrapper_path,
+    "    struct inode_security_struct *wrapper_sec = selinux_inode(wrapper_inode);\n",
+    "    struct inode_security_struct *wrapper_sec =\n"
+    "        (struct inode_security_struct *)wrapper_inode->i_security;\n",
+    "file wrapper 4.14 SELinux inode accessor",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
