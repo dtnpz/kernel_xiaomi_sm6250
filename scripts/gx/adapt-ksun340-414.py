@@ -31,6 +31,21 @@ replace_once(
     "patch_memory nofault kernel write",
 )
 
+# ARM64 4.14 exposes the PTE frame through pte_pfn() and the public
+# instruction-cache flush through flush_icache_range().
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    "    return __pte_to_phys(*pte) + ((addr & ~PAGE_MASK));\n",
+    "    return ((phys_addr_t)pte_pfn(*pte) << PAGE_SHIFT) + ((addr & ~PAGE_MASK));\n",
+    "4.14 ARM64 PTE physical address helper",
+)
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    "#define ksu_flush_icache(start, end) __flush_icache_range(start, end)\n",
+    "#define ksu_flush_icache(start, end) flush_icache_range(start, end)\n",
+    "4.14 ARM64 instruction-cache flush helper",
+)
+
 # v3.4.0 includes linux/pgtable.h for newer kernels, but N45 4.14 has
 # the required page-table helpers through the architecture headers instead.
 sucompat_path = Path("KernelSU-Next/kernel/feature/sucompat.c")
