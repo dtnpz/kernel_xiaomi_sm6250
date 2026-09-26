@@ -571,6 +571,421 @@ replace_once(
     "app profile 4.14 seccomp filter release helper",
 )
 
+# Linux 4.14 stores the active SELinux policy in selinux_state.ss. Use its
+# read/load APIs to snapshot and publish the v3.4.0 policydb without replacing
+# the newer SELinux policy pointer interface.
+sepolicy_path = "KernelSU-Next/kernel/selinux/sepolicy.c"
+replace_once(
+    sepolicy_path,
+    "#include \"ss/services.h\"\n",
+    "#include \"ss/services.h\"\n#include \"security.h\"\n",
+    "4.14 SELinux policy state APIs",
+)
+
+sepolicy_header_path = "KernelSU-Next/kernel/selinux/sepolicy.h"
+replace_once(
+    sepolicy_header_path,
+    "#include <linux/types.h>\n",
+    "#include <linux/types.h>\n#include <linux/version.h>\n",
+    "4.14 policy compat version declaration",
+)
+replace_once(
+    sepolicy_header_path,
+    "#include \"ss/policydb.h\"\n",
+    "#include \"ss/policydb.h\"\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "struct selinux_policy {\n"
+    "    struct policydb policydb;\n"
+    "    struct sidtab *sidtab;\n"
+    "    u32 latest_granting;\n"
+    "};\n"
+    "struct selinux_policy *ksu_dup_current_sepolicy(void);\n"
+    "int ksu_load_sepolicy(struct selinux_policy *pol);\n"
+    "#endif\n",
+    "4.14 policy wrapper and state APIs",
+)
+replace_once(
+    sepolicy_path,
+    "out_free_policydb:\n"
+    "    kfree(new_pol);\n\n"
+    "out_free_data:\n"
+    "    kvfree(data);\n\n"
+    "    return ERR_PTR(ret);\n"
+    "}\n",
+    "out_free_policydb:\n"
+    "    kfree(new_pol);\n\n"
+    "out_free_data:\n"
+    "    kvfree(data);\n\n"
+    "    return ERR_PTR(ret);\n"
+    "}\n\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "static size_t ksu_414_policydb_capacity(const struct policydb *policydb)\n"
+    "{\n"
+    "    return policydb->len + (size_t)policydb->p_types.nprim * (sizeof(u32) + sizeof(u64));\n"
+    "}\n\n"
+    "struct selinux_policy *ksu_dup_current_sepolicy(void)\n"
+    "{\n"
+    "    struct selinux_state *state = &selinux_state;\n"
+    "    struct selinux_ss *ss;\n"
+    "    struct selinux_policy *pol;\n"
+    "    struct policy_file fp;\n"
+    "    size_t capacity, needed, written;\n"
+    "    void *data;\n"
+    "    u32 latest_granting;\n"
+    "    int ret, attempts = 0;\n\n"
+    "    if (!state->initialized || !state->ss)\n"
+    "        return ERR_PTR(-EINVAL);\n"
+    "    ss = state->ss;\n\n"
+    "retry:\n"
+    "    if (attempts++ >= 4)\n"
+    "        return ERR_PTR(-EAGAIN);\n"
+    "    read_lock(&ss->policy_rwlock);\n"
+    "    capacity = ksu_414_policydb_capacity(&ss->policydb);\n"
+    "    read_unlock(&ss->policy_rwlock);\n"
+    "    if (!capacity)\n"
+    "        return ERR_PTR(-EINVAL);\n\n"
+    "    data = vmalloc(capacity);\n"
+    "    if (!data)\n"
+    "        return ERR_PTR(-ENOMEM);\n"
+    "    fp.data = data;\n"
+    "    fp.len = capacity;\n\n"
+    "    read_lock(&ss->policy_rwlock);\n"
+    "    needed = ksu_414_policydb_capacity(&ss->policydb);\n"
+    "    if (needed > capacity) {\n"
+    "        read_unlock(&ss->policy_rwlock);\n"
+    "        vfree(data);\n"
+    "        goto retry;\n"
+    "    }\n"
+    "    ret = policydb_write(&ss->policydb, &fp);\n"
+    "    latest_granting = ss->latest_granting;\n"
+    "#ifdef POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE\n"
+    "    if (!ret && capacity - fp.len >= 24) {\n"
+    "        u32 *config = (u32 *)((unsigned long)data + 20);\n"
+    "        if (ss->policydb.android_netlink_route)\n"
+    "            *config |= POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE;\n"
+    "        if (ss->policydb.android_netlink_getneigh)\n"
+    "            *config |= POLICYDB_CONFIG_ANDROID_NETLINK_GETNEIGH;\n"
+    "    }\n"
+    "#endif\n"
+    "    read_unlock(&ss->policy_rwlock);\n"
+    "    if (ret) {\n"
+    "        vfree(data);\n"
+    "        return ERR_PTR(ret);\n"
+    "    }\n"
+    "    written = capacity - fp.len;\n"
+    "    pol = kzalloc(sizeof(*pol), GFP_KERNEL);\n"
+    "    if (!pol) {\n"
+    "        vfree(data);\n"
+    "        return ERR_PTR(-ENOMEM);\n"
+    "    }\n"
+    "    fp.data = data;\n"
+    "    fp.len = written;\n"
+    "    ret = policydb_read(&pol->policydb, &fp);\n"
+    "    if (ret) {\n"
+    "        kfree(pol);\n"
+    "        vfree(data);\n"
+    "        return ERR_PTR(ret);\n"
+    "    }\n"
+    "    pol->policydb.len = written;\n"
+    "    pol->sidtab = NULL;\n"
+    "    pol->latest_granting = latest_granting;\n"
+    "    vfree(data);\n"
+    "    return pol;\n"
+    "}\n\n"
+    "int ksu_load_sepolicy(struct selinux_policy *pol)\n"
+    "{\n"
+    "    struct policy_file fp;\n"
+    "    size_t capacity, written;\n"
+    "    void *data;\n"
+    "    int ret;\n\n"
+    "    capacity = ksu_414_policydb_capacity(&pol->policydb);\n"
+    "    data = vmalloc(capacity);\n"
+    "    if (!data)\n"
+    "        return -ENOMEM;\n"
+    "    fp.data = data;\n"
+    "    fp.len = capacity;\n"
+    "    ret = policydb_write(&pol->policydb, &fp);\n"
+    "    if (ret) {\n"
+    "        vfree(data);\n"
+    "        return ret;\n"
+    "    }\n"
+    "    written = capacity - fp.len;\n"
+    "#ifdef POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE\n"
+    "    if (written >= 24) {\n"
+    "        u32 *config = (u32 *)((unsigned long)data + 20);\n"
+    "        if (pol->policydb.android_netlink_route)\n"
+    "            *config |= POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE;\n"
+    "        if (pol->policydb.android_netlink_getneigh)\n"
+    "            *config |= POLICYDB_CONFIG_ANDROID_NETLINK_GETNEIGH;\n"
+    "    }\n"
+    "#endif\n"
+    "    ret = security_load_policy(&selinux_state, data, written);\n"
+    "    vfree(data);\n"
+    "    return ret;\n"
+    "}\n"
+    "#endif\n",
+    "4.14 SELinux policy state snapshot and loader",
+)
+
+# In 4.14, selinux_hide's fake view must use the legacy selinux_ss layout.
+hide_path = "KernelSU-Next/kernel/feature/selinux_hide.c"
+replace_once(
+    hide_path,
+    "#include <linux/mutex.h>\n",
+    "#include <linux/mutex.h>\n#include <linux/spinlock.h>\n",
+    "selinux_hide 4.14 fake-state lock declarations",
+)
+replace_once(
+    hide_path,
+    "#else\nstatic struct selinux_state fake_state;\n#endif\n",
+    "#else\n"
+    "static struct selinux_state fake_state;\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "static struct selinux_ss fake_ss;\n"
+    "static int ksu_init_legacy_fake_state(void)\n"
+    "{\n"
+    "    struct selinux_ss *active = selinux_state.ss;\n"
+    "    size_t map_bytes;\n\n"
+    "    if (!active || !backup_sepolicy || !backup_sepolicy->sidtab)\n"
+    "        return -EINVAL;\n"
+    "    if (fake_state.ss == &fake_ss)\n"
+    "        return 0;\n"
+    "    if (active->map.size && !active->map.mapping)\n"
+    "        return -EINVAL;\n\n"
+    "    memset(&fake_ss, 0, sizeof(fake_ss));\n"
+    "    fake_ss.policydb = backup_sepolicy->policydb;\n"
+    "    fake_ss.sidtab = backup_sepolicy->sidtab;\n"
+    "    fake_ss.latest_granting = backup_sepolicy->latest_granting;\n"
+    "    fake_ss.status_page = active->status_page;\n"
+    "    fake_ss.map.size = active->map.size;\n"
+    "    map_bytes = (size_t)active->map.size * sizeof(*active->map.mapping);\n"
+    "    if (map_bytes) {\n"
+    "        fake_ss.map.mapping = kmemdup(active->map.mapping, map_bytes, GFP_KERNEL);\n"
+    "        if (!fake_ss.map.mapping)\n"
+    "            return -ENOMEM;\n"
+    "    }\n"
+    "    rwlock_init(&fake_ss.policy_rwlock);\n"
+    "    mutex_init(&fake_ss.status_lock);\n"
+    "    fake_state = selinux_state;\n"
+    "    fake_state.ss = &fake_ss;\n"
+    "    fake_state.initialized = true;\n"
+    "    return 0;\n"
+    "}\n\n"
+    "static void ksu_cleanup_legacy_fake_state(void)\n"
+    "{\n"
+    "    kfree(fake_ss.map.mapping);\n"
+    "    fake_ss.map.mapping = NULL;\n"
+    "    fake_ss.map.size = 0;\n"
+    "    fake_state.ss = NULL;\n"
+    "}\n"
+    "#endif\n"
+    "#endif\n",
+    "selinux_hide 4.14 fake selinux_ss view",
+)
+replace_once(
+    hide_path,
+    "#else\n"
+    "    fake_state.initialized = true;\n"
+    "    fake_state.policy = backup_sepolicy;\n"
+    "#endif\n",
+    "#elif LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    ret = ksu_init_legacy_fake_state();\n"
+    "    if (ret) {\n"
+    "        pr_err(\"selinux_hide: failed to initialize 4.14 fake state: %d\\n\", ret);\n"
+    "        goto unhook;\n"
+    "    }\n"
+    "#else\n"
+    "    fake_state.initialized = true;\n"
+    "    fake_state.policy = backup_sepolicy;\n"
+    "#endif\n",
+    "selinux_hide 4.14 fake state setup",
+)
+
+# Linux 4.14 keeps SELinux status state under selinux_state.ss.
+hide_text = Path(hide_path).read_text()
+for old, new, expected, label in (
+    ("selinux_state.status_lock", "selinux_state.ss->status_lock", 6, "status locks"),
+    ("selinux_state.status_page", "selinux_state.ss->status_page", 2, "status pages"),
+):
+    count = hide_text.count(old)
+    if count != expected:
+        raise SystemExit(f"[KSUN340-414] selinux_hide {label}: expected {expected}, got {count}")
+    hide_text = hide_text.replace(old, new)
+Path(hide_path).write_text(hide_text)
+
+replace_once(
+    hide_path,
+    "    ksu_unregister_feature_handler(KSU_FEATURE_SELINUX_HIDE);\n",
+    "    ksu_unregister_feature_handler(KSU_FEATURE_SELINUX_HIDE);\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    ksu_cleanup_legacy_fake_state();\n"
+    "#endif\n",
+    "selinux_hide 4.14 fake state exit cleanup",
+)
+replace_once(
+    hide_path,
+    "        pr_info(\"selinux_hide is not enabled - drop backup_sepolicy\\n\");\n",
+    "        pr_info(\"selinux_hide is not enabled - drop backup_sepolicy\\n\");\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "        ksu_cleanup_legacy_fake_state();\n"
+    "#endif\n",
+    "selinux_hide 4.14 fake state backup cleanup",
+)
+
+# Adapt both v3.4.0 rule entrypoints to the legacy selinux_ss state. The rule
+# mutations remain unchanged; 4.14 publishes each clone via security_load_policy.
+rules_path = Path("KernelSU-Next/kernel/selinux/rules.c")
+rules = rules_path.read_text()
+for old, new, expected, label in (
+    ("mutex_lock(&selinux_state.policy_mutex);", "KSU_POLICY_LOCK();", 2, "policy update locks"),
+    ("mutex_unlock(&selinux_state.policy_mutex);", "KSU_POLICY_UNLOCK();", 3, "policy update unlocks"),
+):
+    count = rules.count(old)
+    if count != expected:
+        raise SystemExit(f"[KSUN340-414] {label}: expected {expected}, got {count}")
+    rules = rules.replace(old, new)
+
+backup_anchor = "struct selinux_policy *backup_sepolicy;\n\n"
+if rules.count(backup_anchor) != 1:
+    raise SystemExit("[KSUN340-414] SELinux policy global anchor missing")
+policy_macros = (
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "static DEFINE_MUTEX(ksu_legacy_policy_mutex);\n"
+    "#define KSU_POLICY_LOCK() mutex_lock(&ksu_legacy_policy_mutex)\n"
+    "#define KSU_POLICY_UNLOCK() mutex_unlock(&ksu_legacy_policy_mutex)\n"
+    "#define KSU_POLICY_CURRENT() ksu_dup_current_sepolicy()\n"
+    "#define KSU_POLICY_CLONE(p) ksu_dup_sepolicy(p)\n"
+    "#else\n"
+    "#define KSU_POLICY_LOCK() mutex_lock(&selinux_state.policy_mutex)\n"
+    "#define KSU_POLICY_UNLOCK() mutex_unlock(&selinux_state.policy_mutex)\n"
+    "#define KSU_POLICY_CURRENT() selinux_state.policy\n"
+    "#define KSU_POLICY_CLONE(p) ksu_dup_sepolicy(rcu_dereference_protected((p), lockdep_is_held(&selinux_state.policy_mutex)))\n"
+    "#endif\n\n"
+)
+rules = rules.replace(backup_anchor, backup_anchor + policy_macros, 1)
+
+old_apply_decl = "struct selinux_policy *pol, *old_pol = selinux_state.policy;\n"
+if rules.count(old_apply_decl) != 1:
+    raise SystemExit("[KSUN340-414] apply policy declaration anchor missing")
+rules = rules.replace(
+    old_apply_decl,
+    "struct selinux_policy *pol, *old_pol;\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    int policy_ret;\n"
+    "#endif\n",
+    1,
+)
+old_apply_lock = "    KSU_POLICY_LOCK();\n    if (!old_pol) {\n"
+if rules.count(old_apply_lock) != 1:
+    raise SystemExit("[KSUN340-414] apply policy lock anchor missing")
+rules = rules.replace(
+    old_apply_lock,
+    "    KSU_POLICY_LOCK();\n"
+    "    old_pol = KSU_POLICY_CURRENT();\n"
+    "    if (IS_ERR(old_pol)) {\n"
+    "        pr_warn(\"failed to snapshot SELinux policy: %ld\\n\", PTR_ERR(old_pol));\n"
+    "        KSU_POLICY_UNLOCK();\n"
+    "        return;\n"
+    "    }\n"
+    "    if (!old_pol) {\n",
+    1,
+)
+old_backup_clone = (
+    "backup_sepolicy =\n"
+    "        ksu_dup_sepolicy(rcu_dereference_protected(old_pol, lockdep_is_held(&selinux_state.policy_mutex)));"
+)
+if rules.count(old_backup_clone) != 1:
+    raise SystemExit("[KSUN340-414] backup policy clone anchor missing")
+rules = rules.replace(old_backup_clone, "backup_sepolicy = KSU_POLICY_CLONE(old_pol);", 1)
+old_policy_clone = (
+    "pol = ksu_dup_sepolicy(rcu_dereference_protected(\n"
+    "        old_pol, lockdep_is_held(&selinux_state.policy_mutex)));"
+)
+if rules.count(old_policy_clone) != 2:
+    raise SystemExit("[KSUN340-414] policy clone anchors: expected 2")
+rules = rules.replace(old_policy_clone, "pol = KSU_POLICY_CLONE(old_pol);\n")
+
+old_apply_commit = (
+    "    rcu_assign_pointer(selinux_state.policy, pol);\n"
+    "    synchronize_rcu();\n"
+    "    ksu_destroy_sepolicy(old_pol);\n\n"
+    "    reset_avc_cache();\n"
+)
+new_apply_commit = (
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    policy_ret = ksu_load_sepolicy(pol);\n"
+    "    if (policy_ret) {\n"
+    "        pr_err(\"failed to load KernelSU SELinux rules: %d\\n\", policy_ret);\n"
+    "        ksu_destroy_sepolicy(pol);\n"
+    "        goto out_unlock;\n"
+    "    }\n"
+    "    ksu_destroy_sepolicy(pol);\n"
+    "#else\n"
+    "    rcu_assign_pointer(selinux_state.policy, pol);\n"
+    "    synchronize_rcu();\n"
+    "    ksu_destroy_sepolicy(old_pol);\n"
+    "    reset_avc_cache();\n"
+    "#endif\n"
+)
+if rules.count(old_apply_commit) != 2:
+    raise SystemExit("[KSUN340-414] apply policy publish anchor count changed")
+rules = rules.replace(old_apply_commit, new_apply_commit, 1)
+
+old_handle_assignment = "    old_pol = selinux_state.policy;\n"
+if rules.count(old_handle_assignment) != 1:
+    raise SystemExit("[KSUN340-414] handle policy current anchor missing")
+rules = rules.replace(
+    old_handle_assignment,
+    "    old_pol = KSU_POLICY_CURRENT();\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    if (IS_ERR(old_pol)) {\n"
+    "        ret = PTR_ERR(old_pol);\n"
+    "        old_pol = NULL;\n"
+    "        goto out_unlock;\n"
+    "    }\n"
+    "#endif\n",
+    1,
+)
+old_handle_commit = (
+    "    rcu_assign_pointer(selinux_state.policy, pol);\n"
+    "    synchronize_rcu();\n"
+    "    ksu_destroy_sepolicy(old_pol);\n\n"
+    "    reset_avc_cache();\n"
+    "    ret = success_cmd_count;\n"
+)
+new_handle_commit = (
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    ret = ksu_load_sepolicy(pol);\n"
+    "    if (ret)\n"
+    "        goto out_drop_new_policy;\n"
+    "    ksu_destroy_sepolicy(pol);\n"
+    "#else\n"
+    "    rcu_assign_pointer(selinux_state.policy, pol);\n"
+    "    synchronize_rcu();\n"
+    "    ksu_destroy_sepolicy(old_pol);\n"
+    "    reset_avc_cache();\n"
+    "#endif\n"
+    "    ret = success_cmd_count;\n"
+)
+if rules.count(old_handle_commit) != 1:
+    raise SystemExit("[KSUN340-414] handle policy publish anchor missing")
+rules = rules.replace(old_handle_commit, new_handle_commit, 1)
+
+old_unlock_label = "out_unlock:\n    KSU_POLICY_UNLOCK();\n"
+if rules.count(old_unlock_label) != 2:
+    raise SystemExit("[KSUN340-414] policy update unlock labels: expected 2")
+new_unlock_label = (
+    "out_unlock:\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    if (old_pol && !IS_ERR(old_pol))\n"
+    "        ksu_destroy_sepolicy(old_pol);\n"
+    "#endif\n"
+    "    KSU_POLICY_UNLOCK();\n"
+)
+rules = rules.replace(old_unlock_label, new_unlock_label)
+rules_path.write_text(rules)
+print("[KSUN340-414] adapted: native Linux 4.14 SELinux policy snapshot/load")
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
