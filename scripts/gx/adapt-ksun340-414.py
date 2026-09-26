@@ -442,6 +442,64 @@ replace_once(
     "mount namespace 4.14 private root mount",
 )
 
+# Linux 4.14 routes package directory events through fsnotify_ops.handle_event
+# and attaches inode marks with fsnotify_add_mark().
+pkg_observer_path = "KernelSU-Next/kernel/manager/pkg_observer.c"
+replace_once(
+    pkg_observer_path,
+    "static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask,\n"
+    "                                  struct inode *inode, struct inode *dir,\n"
+    "                                  const struct qstr *file_name, u32 cookie)\n"
+    "{\n"
+    "    if (!file_name)\n"
+    "        return 0;\n"
+    "    if (mask & FS_ISDIR)\n"
+    "        return 0;\n"
+    "    if (file_name->len == 13 && !memcmp(file_name->name, \"packages.list\", 13)) {\n"
+    "        pr_info(\"packages.list detected: %d\\n\", mask);\n"
+    "        track_throne(false);\n"
+    "    }\n"
+    "    return 0;\n"
+    "}\n",
+    "static int ksu_handle_event(struct fsnotify_group *group, struct inode *inode,\n"
+    "                            struct fsnotify_mark *inode_mark,\n"
+    "                            struct fsnotify_mark *vfsmount_mark,\n"
+    "                            u32 mask, const void *data, int data_type,\n"
+    "                            const unsigned char *file_name, u32 cookie,\n"
+    "                            struct fsnotify_iter_info *iter_info)\n"
+    "{\n"
+    "    (void)group;\n"
+    "    (void)inode;\n"
+    "    (void)inode_mark;\n"
+    "    (void)vfsmount_mark;\n"
+    "    (void)data;\n"
+    "    (void)data_type;\n"
+    "    (void)cookie;\n"
+    "    (void)iter_info;\n"
+    "    if (!file_name || (mask & FS_ISDIR))\n"
+    "        return 0;\n"
+    "    if (strlen((const char *)file_name) == 13 &&\n"
+    "        !memcmp(file_name, \"packages.list\", 13)) {\n"
+    "        pr_info(\"packages.list detected: %d\\n\", mask);\n"
+    "        track_throne(false);\n"
+    "    }\n"
+    "    return 0;\n"
+    "}\n",
+    "package observer Linux 4.14 fsnotify handler signature",
+)
+replace_once(
+    pkg_observer_path,
+    ".handle_inode_event = ksu_handle_inode_event,\n",
+    ".handle_event = ksu_handle_event,\n",
+    "package observer Linux 4.14 fsnotify ops field",
+)
+replace_once(
+    pkg_observer_path,
+    "fsnotify_add_inode_mark(m, inode, 0)",
+    "fsnotify_add_mark(m, inode, NULL, 0)",
+    "package observer Linux 4.14 inode mark API",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
