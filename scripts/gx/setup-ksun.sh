@@ -99,7 +99,10 @@ else:
     set_cfg('KPROBES', 'y')
     set_cfg('KALLSYMS', 'y')
     set_cfg('KALLSYMS_ALL', 'y')
-    drop_cfg('KSU_MANUAL_HOOK')
+    # Local N45 compatibility surface: the v3.4.0 core/UAPI stays intact, but
+    # pre-4.17 arm64 syscalls must be intercepted at their native 4.14 entry
+    # points instead of through the pt_regs syscall-table dispatcher.
+    set_cfg('KSU_MANUAL_HOOK', 'y')
     drop_cfg('KSU_KPROBES_HOOK')
     drop_cfg('KSU_SUSFS')
 
@@ -114,6 +117,7 @@ if [[ "${GX_SUSFS:-0}" == "0" ]]; then
   grep -Fxq 'CONFIG_KPROBES=y' "$DEFCONFIG"
   grep -Fxq 'CONFIG_KALLSYMS=y' "$DEFCONFIG"
   grep -Fxq 'CONFIG_KALLSYMS_ALL=y' "$DEFCONFIG"
+  grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
   test -f "$KSUN_DIR/kernel/core/init.c"
   test -f "$KSUN_DIR/kernel/runtime/ksud_integration.c"
   test -f "$KSUN_DIR/kernel/feature/selinux_hide.c"
