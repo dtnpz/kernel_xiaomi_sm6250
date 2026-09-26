@@ -20,14 +20,14 @@ XXKSU_REPO=https://github.com/backslashxx/KernelSU.git
 XXKSU_TAG=v3.3.0-2
 XXKSU_COMMIT=1d1cc5cf1981dbf8ce3258ba16e1a6b16d9651f2
 
-# KernelSU-Next manager/release target.
+# KernelSU-Next v3.4.0 release pin. The KSUN no-SUSFS lane integrates this
+# exact kernel-side commit (UAPI4), not just its manager APK/version string.
 KSUN_REPO=https://github.com/KernelSU-Next/KernelSU-Next.git
 KSUN_RELEASE_TAG=v3.4.0
 KSUN_RELEASE_COMMIT=1a879d6a866f80b1fa1c1009a2ffa747873cbb5e
 
-# Linux 4.14 must use KernelSU-Next's official legacy/manual-hook lane.  Pin
-# the current upstream legacy head separately from the v3.4.0 manager tag:
-# legacy deliberately remains the older UAPI surface for pre-5.10 kernels.
+# Retain the legacy pin only as a compatibility/reference source for old
+# manual-hook/SUSFS work; the normal KSUN no-SUSFS build must not select it.
 KSUN_LEGACY_BRANCH=legacy
 KSUN_LEGACY_COMMIT=dd074bc6c4b33ca4cdf7da05838c71a26ebd6a66
 
