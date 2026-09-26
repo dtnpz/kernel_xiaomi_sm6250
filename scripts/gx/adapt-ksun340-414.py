@@ -49,6 +49,14 @@ if "strncpy_from_user_nofault" not in sucompat_text:
 sucompat_path.write_text(sucompat_text.replace("strncpy_from_user_nofault", "strncpy_from_user"))
 print("[KSUN340-414] adapted: 4.14 user-string copy API")
 
+# The event bridge uses strncpy_from_user(), which 4.14 declares in uaccess.h.
+replace_once(
+    "KernelSU-Next/kernel/hook/syscall_event_bridge.c",
+    "#include <linux/ptrace.h>\n",
+    "#include <linux/ptrace.h>\n#include <linux/uaccess.h>\n",
+    "syscall event bridge uaccess declaration",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
