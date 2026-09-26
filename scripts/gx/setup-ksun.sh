@@ -71,6 +71,9 @@ if susfs:
     set_cfg('KSU_SUSFS', 'y')
 else:
     # v3.4.0 mainline uses the modern hook engine and requires KPROBES.
+    # In this 4.14 tree KPROBES itself depends on MODULES, so both must be
+    # enabled together or Kconfig silently drops CONFIG_KSU.
+    set_cfg('MODULES', 'y')
     set_cfg('KPROBES', 'y')
     drop_cfg('KSU_MANUAL_HOOK')
     drop_cfg('KSU_KPROBES_HOOK')
@@ -83,6 +86,7 @@ grep -Fxq 'CONFIG_KSU=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_EXT4_FS=y' "$DEFCONFIG"
 
 if [[ "${GX_SUSFS:-0}" == "0" ]]; then
+  grep -Fxq 'CONFIG_MODULES=y' "$DEFCONFIG"
   grep -Fxq 'CONFIG_KPROBES=y' "$DEFCONFIG"
   test -f "$KSUN_DIR/kernel/core/init.c"
   test -f "$KSUN_DIR/kernel/runtime/ksud_integration.c"
