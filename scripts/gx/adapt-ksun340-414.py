@@ -267,13 +267,13 @@ if old_input not in rt:
     raise SystemExit("[KSUN340-414] input handler anchor missing")
 rt = rt.replace(old_input, new_input, 1)
 
-old_stop_init = """static void stop_init_rc_hook()
+old_stop_init = r"""static void stop_init_rc_hook()
 {
     ksu_syscall_table_unhook(__NR_read);
     ksu_syscall_table_unhook(__NR_fstat);
     pr_info("unregister init_rc syscall hook\n");
 }"""
-new_stop_init = """static void stop_init_rc_hook()
+new_stop_init = r"""static void stop_init_rc_hook()
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
     gxt_414_init_rc_hook = false;
@@ -288,7 +288,7 @@ if old_stop_init not in rt:
     raise SystemExit("[KSUN340-414] stop_init_rc_hook anchor missing")
 rt = rt.replace(old_stop_init, new_stop_init, 1)
 
-old_stop_input = """void ksu_stop_input_hook_runtime(void)
+old_stop_input = r"""void ksu_stop_input_hook_runtime(void)
 {
     static bool input_hook_stopped = false;
     if (input_hook_stopped) {
@@ -298,7 +298,7 @@ old_stop_input = """void ksu_stop_input_hook_runtime(void)
     bool ret = schedule_work(&stop_input_hook_work);
     pr_info("unregister input kprobe: %d!\n", ret);
 }"""
-new_stop_input = """void ksu_stop_input_hook_runtime(void)
+new_stop_input = r"""void ksu_stop_input_hook_runtime(void)
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
     gxt_414_input_hook = false;
@@ -381,7 +381,7 @@ int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
 '''
 rt = rt.replace(module_anchor, manual_runtime + module_anchor, 1)
 
-old_init = """void __init ksu_ksud_init()
+old_init = r"""void __init ksu_ksud_init()
 {
     int ret;
 
@@ -393,7 +393,7 @@ old_init = """void __init ksu_ksud_init()
 
     INIT_WORK(&stop_input_hook_work, do_stop_input_hook);
 }"""
-new_init = """void __init ksu_ksud_init()
+new_init = r"""void __init ksu_ksud_init()
 {
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)
     gxt_414_init_rc_hook = true;
