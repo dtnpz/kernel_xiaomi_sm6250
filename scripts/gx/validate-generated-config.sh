@@ -38,13 +38,16 @@ case "${GX_ROOT:-none}" in
     require_y KSU
     if [[ "${GX_SUSFS:-0}" == "0" ]] &&
        grep -Fq 'KERNEL_SU_UAPI_VERSION = 4' KernelSU-Next/uapi/supercall.h 2>/dev/null; then
-      # Real v3.4.0 mainline core: modern hook engine on this 4.14 backport.
+      # Real v3.4.0/UAPI4 core. KPROBES is still an upstream Kconfig dependency,
+      # while the arm64 syscall interception itself is bridged at native 4.14
+      # source call-sites by adapt-ksun340-414.py.
       require_y MODULES
       require_y KPROBES
-      require_y KSU_MANUAL_HOOK
+      require_y KALLSYMS
+      require_y KALLSYMS_ALL
+      forbid_y KSU_MANUAL_HOOK
       forbid_y KSU_KPROBES_HOOK
     else
-      # Legacy/manual-hook compatibility lane (currently used by SUSFS).
       require_y KSU_MANUAL_HOOK
       forbid_y KSU_KPROBES_HOOK
     fi
@@ -61,9 +64,6 @@ else
   forbid_y KSU_SUSFS
 fi
 
-# Generic Linux kprobe capability/state belongs to the vendor baseline.  It is
-# not a KSU hook-mode selector here; log it for audit but do not globally force
-# it on or off.
 grep -E '^(CONFIG_KPROBES=|# CONFIG_KPROBES is not set|CONFIG_HAVE_KPROBES=)' "$CONFIG" || true
 
-echo "[N45] generated config verified: variant/root/SUSFS and selected KSUN hook engine match"
+echo "[N45] generated config verified: variant/root/SUSFS and KSUN 4.14 bridge match"

@@ -19,8 +19,9 @@ if [[ "${GX_SUSFS:-0}" == "1" ]]; then
   echo "[GXT] integrating KernelSU-Next SUSFS-v2 compatibility tree @ $KSU_COMMIT"
 else
   # Pull the real v3.4.0 kernel-side core, not the older legacy/UAPI2 lane.
-  # N45 keeps its vendor-tree cleanup below and backports only APIs actually
-  # required by this exact v3.4.0 source.
+  # The Linux 4.14 adapter only replaces the syscall interception surface and
+  # missing kernel APIs; v3.4.0 policy/features/UAPI (including selinux_hide)
+  # remain the source of truth.
   KSU_REPO="$KSUN_REPO"
   KSU_COMMIT="$KSUN_RELEASE_COMMIT"
   echo "[GXT] integrating KernelSU-Next ${KSUN_RELEASE_TAG} kernel core @ $KSU_COMMIT"
@@ -92,17 +93,14 @@ if susfs:
     set_cfg('KSU_KPROBES_HOOK', 'n')
     set_cfg('KSU_SUSFS', 'y')
 else:
-    # v3.4.0 mainline uses the modern hook engine and requires KPROBES.
-    # In this 4.14 tree KPROBES itself depends on MODULES, so both must be
-    # enabled together or Kconfig silently drops CONFIG_KSU.
+    # v3.4.0 Kconfig requires KPROBES. The GXT 4.14 adapter keeps that
+    # dependency satisfied but replaces only the incompatible arm64 syscall
+    # dispatcher with native 4.14 call-site callbacks.
     set_cfg('MODULES', 'y')
     set_cfg('KPROBES', 'y')
     set_cfg('KALLSYMS', 'y')
     set_cfg('KALLSYMS_ALL', 'y')
-    # Local N45 compatibility surface: the v3.4.0 core/UAPI stays intact, but
-    # pre-4.17 arm64 syscalls must be intercepted at their native 4.14 entry
-    # points instead of through the pt_regs syscall-table dispatcher.
-    set_cfg('KSU_MANUAL_HOOK', 'y')
+    drop_cfg('KSU_MANUAL_HOOK')
     drop_cfg('KSU_KPROBES_HOOK')
     drop_cfg('KSU_SUSFS')
 
@@ -117,7 +115,6 @@ if [[ "${GX_SUSFS:-0}" == "0" ]]; then
   grep -Fxq 'CONFIG_KPROBES=y' "$DEFCONFIG"
   grep -Fxq 'CONFIG_KALLSYMS=y' "$DEFCONFIG"
   grep -Fxq 'CONFIG_KALLSYMS_ALL=y' "$DEFCONFIG"
-  grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
   test -f "$KSUN_DIR/kernel/core/init.c"
   test -f "$KSUN_DIR/kernel/runtime/ksud_integration.c"
   test -f "$KSUN_DIR/kernel/feature/selinux_hide.c"
@@ -128,7 +125,7 @@ if [[ "${GX_SUSFS:-0}" == "0" ]]; then
     echo "legacy transaction_write blocker leaked into v3.4.0 lane" >&2
     exit 5
   fi
-  echo "[GXT] KernelSU-Next v3.4.0/UAPI4 modern core ready"
+  echo "[GXT] KernelSU-Next v3.4.0/UAPI4 core pinned; Linux 4.14 bridge will be applied"
 else
   grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
   grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
