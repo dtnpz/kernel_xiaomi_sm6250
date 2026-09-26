@@ -36,8 +36,18 @@ case "${GX_ROOT:-none}" in
     ;;
   ksun)
     require_y KSU
-    require_y KSU_MANUAL_HOOK
-    forbid_y KSU_KPROBES_HOOK
+    if [[ "${GX_SUSFS:-0}" == "0" ]] &&
+       grep -Fq 'KERNEL_SU_UAPI_VERSION = 4' KernelSU-Next/uapi/supercall.h 2>/dev/null; then
+      # Real v3.4.0 mainline core: modern hook engine on this 4.14 backport.
+      require_y MODULES
+      require_y KPROBES
+      forbid_y KSU_MANUAL_HOOK
+      forbid_y KSU_KPROBES_HOOK
+    else
+      # Legacy/manual-hook compatibility lane (currently used by SUSFS).
+      require_y KSU_MANUAL_HOOK
+      forbid_y KSU_KPROBES_HOOK
+    fi
     ;;
   *)
     echo "[N45] unknown GX_ROOT=${GX_ROOT:-}" >&2
@@ -56,4 +66,4 @@ fi
 # it on or off.
 grep -E '^(CONFIG_KPROBES=|# CONFIG_KPROBES is not set|CONFIG_HAVE_KPROBES=)' "$CONFIG" || true
 
-echo "[N45] generated config verified: variant/root/SUSFS match; KSU kprobe hook paths disabled"
+echo "[N45] generated config verified: variant/root/SUSFS and selected KSUN hook engine match"
