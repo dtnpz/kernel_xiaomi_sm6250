@@ -41,7 +41,7 @@ case "${GX_ROOT:-none}" in
       # Real v3.4.0 mainline core: modern hook engine on this 4.14 backport.
       require_y MODULES
       require_y KPROBES
-      forbid_y KSU_MANUAL_HOOK
+      require_y KSU_MANUAL_HOOK
       forbid_y KSU_KPROBES_HOOK
     else
       # Legacy/manual-hook compatibility lane (currently used by SUSFS).
