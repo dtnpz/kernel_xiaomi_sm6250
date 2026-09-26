@@ -33,7 +33,7 @@
 #define FASTRPC_IOCTL_CONTROL   _IOWR('R', 12, struct fastrpc_ioctl_control)
 #define FASTRPC_IOCTL_MUNMAP_FD _IOWR('R', 13, struct fastrpc_ioctl_munmap_fd)
 #define FASTRPC_IOCTL_GET_DSP_INFO \
-			_IOWR('R', 16, struct fastrpc_ioctl_dsp_capabilities)
+			_IOWR('R', 17, struct fastrpc_ioctl_dsp_capabilities)
 
 #define FASTRPC_GLINK_GUID "fastrpcglink-apps-dsp"
 #define FASTRPC_SMD_GUID "fastrpcsmd-apps-dsp"
