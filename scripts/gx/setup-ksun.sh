@@ -42,6 +42,28 @@ if ! grep -Fq 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig; then
   sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 fi
 
+# v3.4.0 selinux_hide resolves selinuxfs data tables (write_op and
+# sel_handle_status_ops) by name. 4.14's KALLSYMS_ALL is unnecessarily gated by
+# DEBUG_KERNEL; relax only that menu dependency so the release build can expose
+# data symbols without enabling the whole debug-kernel feature set.
+if [[ "${GX_SUSFS:-0}" == "0" ]]; then
+  python3 - <<'PY'
+from pathlib import Path
+p = Path("init/Kconfig")
+s = p.read_text()
+old = """config KALLSYMS_ALL
+\tbool "Include all symbols in kallsyms"
+\tdepends on DEBUG_KERNEL && KALLSYMS"""
+new = """config KALLSYMS_ALL
+\tbool "Include all symbols in kallsyms"
+\tdepends on KALLSYMS"""
+if old not in s:
+    raise SystemExit("[GXT] KALLSYMS_ALL 4.14 dependency anchor missing")
+p.write_text(s.replace(old, new, 1))
+print("[GXT] relaxed KALLSYMS_ALL debug-only gate for KSUN v3.4.0")
+PY
+fi
+
 python3 - "$DEFCONFIG" "${GX_SUSFS:-0}" <<'PY'
 from pathlib import Path
 import re, sys
@@ -75,6 +97,8 @@ else:
     # enabled together or Kconfig silently drops CONFIG_KSU.
     set_cfg('MODULES', 'y')
     set_cfg('KPROBES', 'y')
+    set_cfg('KALLSYMS', 'y')
+    set_cfg('KALLSYMS_ALL', 'y')
     drop_cfg('KSU_MANUAL_HOOK')
     drop_cfg('KSU_KPROBES_HOOK')
     drop_cfg('KSU_SUSFS')
@@ -88,6 +112,8 @@ grep -Fxq 'CONFIG_EXT4_FS=y' "$DEFCONFIG"
 if [[ "${GX_SUSFS:-0}" == "0" ]]; then
   grep -Fxq 'CONFIG_MODULES=y' "$DEFCONFIG"
   grep -Fxq 'CONFIG_KPROBES=y' "$DEFCONFIG"
+  grep -Fxq 'CONFIG_KALLSYMS=y' "$DEFCONFIG"
+  grep -Fxq 'CONFIG_KALLSYMS_ALL=y' "$DEFCONFIG"
   test -f "$KSUN_DIR/kernel/core/init.c"
   test -f "$KSUN_DIR/kernel/runtime/ksud_integration.c"
   test -f "$KSUN_DIR/kernel/feature/selinux_hide.c"
