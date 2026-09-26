@@ -50,14 +50,12 @@ jobs:
           display = 'gxt-4.14.357'
           p = Path('kernel/sys.c')
           s = p.read_text()
-          old = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
+          android_bpf_compat = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
           \t    !strncmp(current->comm, "netbpfload", 10) ||
           \t    !strncmp(current->comm, "netd", 4)) {'''
-          new = '''\tif (!strncmp(current->comm, "bpfloader", 9) ||
-          \t    !strncmp(current->comm, "netd", 4)) {'''
-          if old not in s:
-              raise SystemExit('netbpfload uname spoof anchor not found')
-          s = s.replace(old, new, 1)
+          if android_bpf_compat not in s:
+              raise SystemExit('Android BPF uname compatibility anchor not found')
+          print('[uname] preserving netbpfload Android 15 compatibility spoof')
 
           anchor = '''\t\tstrcpy(tmp.release, "5.4.0");
           \t\tpr_debug("fake uname: %s/%d release=%s\\n",
@@ -116,6 +114,8 @@ jobs:
           fi
 
           grep -Fq 'rev187 clean-name compatibility' kernel/module.c
+          grep -Fq '!strncmp(current->comm, "netbpfload", 10)' kernel/sys.c
+          grep -Fq 'strcpy(tmp.release, "5.4.0")' kernel/sys.c
           grep -Fq 'strcpy(tmp.release, "gxt-4.14.357")' kernel/sys.c
 
           if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-rev187-xxksu33020' ]]; then
