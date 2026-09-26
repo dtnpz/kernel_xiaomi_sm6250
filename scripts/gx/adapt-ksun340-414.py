@@ -1244,6 +1244,16 @@ if "#define ksu_close_fd ksys_close" not in util_text:
 util_path.write_text(util_text.replace("#define ksu_close_fd ksys_close", "#define ksu_close_fd sys_close", 1))
 print("[KSUN340-414] adapted: 4.14 close syscall helper")
 
+# Linux 4.14's tasklist_lock and init_task declarations live in
+# linux/sched/task.h; v3.4.0 supercall/dispatch.c relies on them transitively
+# on newer kernels but must include the declaration header explicitly here.
+replace_once(
+    "KernelSU-Next/kernel/supercall/dispatch.c",
+    "#include <linux/cred.h>\n",
+    "#include <linux/cred.h>\n#include <linux/sched/task.h>\n",
+    "supercall dispatch 4.14 task declarations",
+)
+
 # Linux 4.14 task_work_add() takes a boolean notify argument.
 for task_work_path in (
     "KernelSU-Next/kernel/policy/allowlist.c",
