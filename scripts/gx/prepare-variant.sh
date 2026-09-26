@@ -60,16 +60,17 @@ if [[ "$GX_ROOT" != none ]]; then
   python3 scripts/gx/strip-modern-ksu-legacy-vendor-hooks.py
 fi
 
-# KSUN no-SUSFS uses the official legacy/manual-hook engine on N45. Install
-# only the KernelSU hook surface here; no SUSFS source/features are introduced.
+# KSUN no-SUSFS now uses the real v3.4.0 modern/UAPI4 core. Do not graft the
+# legacy manual-hook lifecycle or DirtySepolicy shim onto it: the old shim
+# hard-blocked selinuxfs transaction_write for every app UID and caused A15
+# userspace to stall during boot. v3.4.0's selinux_hide uses a backup policy
+# view instead and starts disabled until ksud applies the persisted feature.
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
-  python3 scripts/gx/apply-ksun-manual-hooks.py
-  # Legacy/manual KSUN also needs init.rc read/stat and input lifecycle hooks.
-  # Without these, ksud service-stage module actions never get injected into init.
-  python3 scripts/gx/apply-ksun-legacy-lifecycle-hooks.py
-  # Present stock-like SELinux context/access/status results to normal apps,
-  # while keeping KSUN's real modified policy active inside the kernel.
-  python3 scripts/gx/apply-ksun-dirtysepolicy-hide.py
+  grep -Fq 'static const __u32 KERNEL_SU_UAPI_VERSION = 4;' KernelSU-Next/uapi/supercall.h
+  if grep -Fq 'blocked transaction_write from uid=' KernelSU-Next/kernel/feature/selinux_hide.c; then
+    echo "legacy selinux_hide transaction blocker must not be present" >&2
+    exit 6
+  fi
 fi
 
 if [[ "$GX_SUSFS" == 1 ]]; then
