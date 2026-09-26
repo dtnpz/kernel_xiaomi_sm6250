@@ -15,6 +15,7 @@ on:
       - miatoll-nexus45-bp-ksun-nosusfs
       - gxterkernl-joyeuse-4.14.357-rev187
       - gxterkernl-joyeuse-4.14.357-rev187-ksun
+      - gxterkernl-joyeuse-4.14.357-rev187-ksun340-port
   workflow_dispatch:
 
 permissions:
