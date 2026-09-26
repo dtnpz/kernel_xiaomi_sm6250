@@ -500,6 +500,22 @@ replace_once(
     "package observer Linux 4.14 inode mark API",
 )
 
+# Linux 4.14 declares put_task_struct() in sched/task.h and uses comments for
+# switch fall-through annotations.
+allowlist_path = "KernelSU-Next/kernel/policy/allowlist.c"
+replace_once(
+    allowlist_path,
+    "#include <linux/task_work.h>\n",
+    "#include <linux/task_work.h>\n#include <linux/sched/task.h>\n",
+    "allowlist 4.14 task reference declaration",
+)
+replace_once(
+    allowlist_path,
+    "        fallthrough;\n",
+    "        /* fall through */\n",
+    "allowlist 4.14 switch fall-through annotation",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
