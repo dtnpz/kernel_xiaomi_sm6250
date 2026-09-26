@@ -28,6 +28,21 @@ replace_once(
     "patch_memory nofault kernel write",
 )
 
+# Linux 4.14 task_work_add() takes a boolean notify argument. Newer kernels
+# replaced that boolean with enum task_work_notify_mode; TWA_RESUME has the
+# resume-notification behavior required by these two v3.4.0 call sites.
+for task_work_path in (
+    "KernelSU-Next/kernel/policy/allowlist.c",
+    "KernelSU-Next/kernel/supercall/supercall.c",
+):
+    p = Path(task_work_path)
+    text = p.read_text()
+    if "TWA_RESUME" not in text:
+        raise SystemExit(f"[KSUN340-414] task_work anchor missing: {task_work_path}")
+    p.write_text(text.replace("TWA_RESUME", "true"))
+    print(f"[KSUN340-414] adapted: 4.14 task_work notify API ({task_work_path})")
+
+
 # Guardrails: the port must stay on the real v3.4.0/UAPI4 SELinux hide engine.
 uapi = Path("KernelSU-Next/uapi/supercall.h").read_text()
 hide = Path("KernelSU-Next/kernel/feature/selinux_hide.c").read_text()
