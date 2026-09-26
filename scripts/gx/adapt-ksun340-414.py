@@ -463,6 +463,18 @@ replace_once(
     "ksud integration 4.14 user write",
 )
 
+# Linux 4.14 stores the SELinux task state directly in cred->security.
+selinux_path = "KernelSU-Next/kernel/selinux/selinux.c"
+replace_once(
+    selinux_path,
+    "#include \"linux/version.h\"\n",
+    "#include \"linux/version.h\"\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "#define selinux_cred(cred) ((struct task_security_struct *)(cred)->security)\n"
+    "#endif\n",
+    "selinux 4.14 credential accessor",
+)
+
 # Linux 4.14 routes package directory events through fsnotify_ops.handle_event
 # and attaches inode marks with fsnotify_add_mark().
 pkg_observer_path = "KernelSU-Next/kernel/manager/pkg_observer.c"
