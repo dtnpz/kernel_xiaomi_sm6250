@@ -40,6 +40,24 @@ if "#include <linux/pgtable.h>\n" not in sucompat_text:
 sucompat_path.write_text(sucompat_text.replace("#include <linux/pgtable.h>\n", "", 1))
 print("[KSUN340-414] adapted: drop post-4.14 linux/pgtable.h include")
 
+# 4.14 lacks strncpy_from_user_nofault(). These sucompat reads execute from
+# native syscall call-sites in this port, so the regular user-copy primitive
+# is the correct 4.14 equivalent.
+sucompat_text = sucompat_path.read_text()
+if "strncpy_from_user_nofault" not in sucompat_text:
+    raise SystemExit("[KSUN340-414] expected v3.4.0 nofault user-string API")
+sucompat_path.write_text(sucompat_text.replace("strncpy_from_user_nofault", "strncpy_from_user"))
+print("[KSUN340-414] adapted: 4.14 user-string copy API")
+
+# ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
+# sys_close() and KernelSU already includes linux/syscalls.h through util.h.
+util_path = Path("KernelSU-Next/kernel/include/util.h")
+util_text = util_path.read_text()
+if "#define ksu_close_fd ksys_close" not in util_text:
+    raise SystemExit("[KSUN340-414] ksu_close_fd compatibility anchor missing")
+util_path.write_text(util_text.replace("#define ksu_close_fd ksys_close", "#define ksu_close_fd sys_close", 1))
+print("[KSUN340-414] adapted: 4.14 close syscall helper")
+
 # Linux 4.14 task_work_add() takes a boolean notify argument.
 for task_work_path in (
     "KernelSU-Next/kernel/policy/allowlist.c",
