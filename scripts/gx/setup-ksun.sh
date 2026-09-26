@@ -18,11 +18,12 @@ if [[ "${GX_SUSFS:-0}" == "1" ]]; then
   KSU_COMMIT="$KSUN_SUSFS_COMMIT"
   echo "[GXT] integrating KernelSU-Next SUSFS-v2 compatibility tree @ $KSU_COMMIT"
 else
-  # N45 is Linux 4.14. Use KernelSU-Next's official legacy/manual-hook branch,
-  # not the stable KPROBES-oriented release lane.
+  # Pull the real v3.4.0 kernel-side core, not the older legacy/UAPI2 lane.
+  # N45 keeps its vendor-tree cleanup below and backports only APIs actually
+  # required by this exact v3.4.0 source.
   KSU_REPO="$KSUN_REPO"
-  KSU_COMMIT="$KSUN_LEGACY_COMMIT"
-  echo "[GXT] integrating official KernelSU-Next ${KSUN_LEGACY_BRANCH} manual-hook tree @ $KSU_COMMIT"
+  KSU_COMMIT="$KSUN_RELEASE_COMMIT"
+  echo "[GXT] integrating KernelSU-Next ${KSUN_RELEASE_TAG} kernel core @ $KSU_COMMIT"
 fi
 
 git clone -q "$KSU_REPO" "$KSUN_DIR"
@@ -64,13 +65,15 @@ def drop_cfg(key):
 
 set_cfg('KSU', 'y')
 set_cfg('EXT4_FS', 'y')
-set_cfg('KSU_MANUAL_HOOK', 'y')
-set_cfg('KSU_KPROBES_HOOK', 'n')
-# Preserve the known-good Miatoll baseline for generic KPROBES/KRETPROBES.
-# KSUN itself uses only its manual hook surface on this 4.14 lane.
 if susfs:
+    set_cfg('KSU_MANUAL_HOOK', 'y')
+    set_cfg('KSU_KPROBES_HOOK', 'n')
     set_cfg('KSU_SUSFS', 'y')
 else:
+    # v3.4.0 mainline uses the modern hook engine and requires KPROBES.
+    set_cfg('KPROBES', 'y')
+    drop_cfg('KSU_MANUAL_HOOK')
+    drop_cfg('KSU_KPROBES_HOOK')
     drop_cfg('KSU_SUSFS')
 
 p.write_text(s)
@@ -78,20 +81,23 @@ PY
 
 grep -Fxq 'CONFIG_KSU=y' "$DEFCONFIG"
 grep -Fxq 'CONFIG_EXT4_FS=y' "$DEFCONFIG"
-grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
-grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
 
 if [[ "${GX_SUSFS:-0}" == "0" ]]; then
+  grep -Fxq 'CONFIG_KPROBES=y' "$DEFCONFIG"
   test -f "$KSUN_DIR/kernel/core/init.c"
   test -f "$KSUN_DIR/kernel/runtime/ksud_integration.c"
-  test -f "$KSUN_DIR/kernel/supercall/supercall.c"
-  grep -Fq 'config KSU_MANUAL_HOOK' "$KSUN_DIR/kernel/Kconfig"
-  grep -Fq 'This should not be used on kernel below 5.10' "$KSUN_DIR/kernel/Kconfig"
-  grep -Fq 'int ksu_handle_execveat(' "$KSUN_DIR/kernel/core/init.c"
-  grep -Fq 'ksu_handle_vfs_read' "$KSUN_DIR/kernel/runtime/ksud_integration.c"
-  grep -Fq 'ksu_handle_sys_reboot' "$KSUN_DIR/kernel/supercall/supercall.c"
-  echo "[GXT] official KernelSU-Next legacy manual-hook integration ready"
+  test -f "$KSUN_DIR/kernel/feature/selinux_hide.c"
+  grep -Fq 'depends on KPROBES && EXT4_FS' "$KSUN_DIR/kernel/Kconfig"
+  grep -Fq 'static const __u32 KERNEL_SU_UAPI_VERSION = 4;' "$KSUN_DIR/uapi/supercall.h"
+  grep -Fq 'static bool ksu_selinux_hide_enabled __read_mostly = false;' "$KSUN_DIR/kernel/feature/selinux_hide.c"
+  if grep -Fq 'blocked transaction_write from uid=' "$KSUN_DIR/kernel/feature/selinux_hide.c"; then
+    echo "legacy transaction_write blocker leaked into v3.4.0 lane" >&2
+    exit 5
+  fi
+  echo "[GXT] KernelSU-Next v3.4.0/UAPI4 modern core ready"
 else
+  grep -Fxq 'CONFIG_KSU_MANUAL_HOOK=y' "$DEFCONFIG"
+  grep -Fxq '# CONFIG_KSU_KPROBES_HOOK is not set' "$DEFCONFIG"
   grep -Fq 'config KSU_SUSFS' "$KSUN_DIR/kernel/Kconfig"
   grep -Fxq 'CONFIG_KSU_SUSFS=y' "$DEFCONFIG"
   echo "[GXT] KernelSU-Next SUSFS compatibility integration ready"
