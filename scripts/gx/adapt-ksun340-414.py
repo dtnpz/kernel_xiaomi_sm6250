@@ -442,6 +442,27 @@ replace_once(
     "mount namespace 4.14 private root mount",
 )
 
+# These user-copy calls run in the native exec/stat syscall paths on 4.14.
+ksud_runtime_path = "KernelSU-Next/kernel/runtime/ksud_integration.c"
+replace_once(
+    ksud_runtime_path,
+    "strncpy_from_user_nofault",
+    "strncpy_from_user",
+    "ksud integration 4.14 user-string copy",
+)
+replace_once(
+    ksud_runtime_path,
+    "copy_from_user_nofault",
+    "copy_from_user",
+    "ksud integration 4.14 user read",
+)
+replace_once(
+    ksud_runtime_path,
+    "copy_to_user_nofault",
+    "copy_to_user",
+    "ksud integration 4.14 user write",
+)
+
 # Linux 4.14 routes package directory events through fsnotify_ops.handle_event
 # and attaches inode marks with fsnotify_add_mark().
 pkg_observer_path = "KernelSU-Next/kernel/manager/pkg_observer.c"
