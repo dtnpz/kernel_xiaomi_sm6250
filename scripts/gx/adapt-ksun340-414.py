@@ -578,8 +578,35 @@ sepolicy_path = "KernelSU-Next/kernel/selinux/sepolicy.c"
 replace_once(
     sepolicy_path,
     "#include \"ss/services.h\"\n",
-    "#include \"ss/services.h\"\n#include \"security.h\"\n",
+    "#include \"ss/services.h\"\n#include \"security.h\"\n"
+    "#include <linux/version.h>\n#include <linux/flex_array.h>\n",
     "4.14 SELinux policy state APIs",
+)
+replace_once(
+    sepolicy_path,
+    "#include <linux/flex_array.h>\n",
+    "#include <linux/flex_array.h>\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)\n"
+    "#define KSU_AVTAB_BUCKET(avtab, slot) flex_array_get_ptr((avtab)->htable, (slot))\n"
+    "#define KSU_AVTAB_SET_BUCKET(avtab, slot, node) flex_array_put_ptr((avtab)->htable, (slot), (node), GFP_KERNEL)\n"
+    "#else\n"
+    "#define KSU_AVTAB_BUCKET(avtab, slot) ((avtab)->htable[(slot)])\n"
+    "#define KSU_AVTAB_SET_BUCKET(avtab, slot, node) (((avtab)->htable[(slot)] = (node)), 0)\n"
+    "#endif\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "#define KSU_TYPE_ATTR_MAP(db, index) flex_array_get((db)->type_attr_map_array, (index))\n"
+    "#else\n"
+    "#define KSU_TYPE_ATTR_MAP(db, index) (&(db)->type_attr_map_array[(index)])\n"
+    "#endif\n"
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "static int ksu_414_add_type_indexes(struct policydb *db, u32 value,\n"
+    "                                    struct type_datum *type, char *name);\n"
+    "static bool ksu_414_add_filename_trans(struct policydb *db,\n"
+    "                                        const char *s, const char *t,\n"
+    "                                        const char *c, const char *d,\n"
+    "                                        const char *o);\n"
+    "#endif\n",
+    "4.14 SELinux avtab bucket accessors",
 )
 
 sepolicy_header_path = "KernelSU-Next/kernel/selinux/sepolicy.h"
@@ -722,10 +749,232 @@ replace_once(
     "    ret = security_load_policy(&selinux_state, data, written);\n"
     "    vfree(data);\n"
     "    return ret;\n"
+    "}\n\n"
+    "static int ksu_414_resize_ptr_array(struct flex_array **array,\n"
+    "                                    unsigned int old_count,\n"
+    "                                    unsigned int new_count)\n"
+    "{\n"
+    "    struct flex_array *old_array = *array;\n"
+    "    struct flex_array *new_array;\n"
+    "    unsigned int i;\n"
+    "    int ret;\n\n"
+    "    new_array = flex_array_alloc(sizeof(void *), new_count,\n"
+    "                                 GFP_KERNEL | __GFP_ZERO);\n"
+    "    if (!new_array)\n"
+    "        return -ENOMEM;\n"
+    "    ret = flex_array_prealloc(new_array, 0, new_count,\n"
+    "                              GFP_KERNEL | __GFP_ZERO);\n"
+    "    if (ret) {\n"
+    "        flex_array_free(new_array);\n"
+    "        return ret;\n"
+    "    }\n"
+    "    for (i = 0; i < old_count; i++) {\n"
+    "        void *item = flex_array_get_ptr(old_array, i);\n\n"
+    "        ret = flex_array_put_ptr(new_array, i, item, GFP_KERNEL);\n"
+    "        if (ret) {\n"
+    "            flex_array_free(new_array);\n"
+    "            return ret;\n"
+    "        }\n"
+    "    }\n"
+    "    *array = new_array;\n"
+    "    flex_array_free(old_array);\n"
+    "    return 0;\n"
+    "}\n\n"
+    "static int ksu_414_resize_ebitmap_array(struct flex_array **array,\n"
+    "                                       unsigned int old_count,\n"
+    "                                       unsigned int new_count)\n"
+    "{\n"
+    "    struct flex_array *old_array = *array;\n"
+    "    struct flex_array *new_array;\n"
+    "    unsigned int i;\n"
+    "    int ret;\n\n"
+    "    new_array = flex_array_alloc(sizeof(struct ebitmap), new_count,\n"
+    "                                 GFP_KERNEL | __GFP_ZERO);\n"
+    "    if (!new_array)\n"
+    "        return -ENOMEM;\n"
+    "    ret = flex_array_prealloc(new_array, 0, new_count,\n"
+    "                              GFP_KERNEL | __GFP_ZERO);\n"
+    "    if (ret) {\n"
+    "        flex_array_free(new_array);\n"
+    "        return ret;\n"
+    "    }\n"
+    "    for (i = 0; i < old_count; i++) {\n"
+    "        struct ebitmap *old_map = flex_array_get(old_array, i);\n"
+    "        struct ebitmap *new_map = flex_array_get(new_array, i);\n\n"
+    "        if (!old_map || !new_map) {\n"
+    "            flex_array_free(new_array);\n"
+    "            return -EINVAL;\n"
+    "        }\n"
+    "        *new_map = *old_map;\n"
+    "    }\n"
+    "    *array = new_array;\n"
+    "    flex_array_free(old_array);\n"
+    "    return 0;\n"
+    "}\n\n"
+    "static int ksu_414_add_type_indexes(struct policydb *db, u32 value,\n"
+    "                                    struct type_datum *type, char *name)\n"
+    "{\n"
+    "    struct ebitmap *type_map;\n"
+    "    int ret;\n\n"
+    "    ret = ksu_414_resize_ebitmap_array(&db->type_attr_map_array,\n"
+    "                                       value - 1, value);\n"
+    "    if (ret)\n"
+    "        return ret;\n"
+    "    ret = ksu_414_resize_ptr_array(&db->type_val_to_struct_array,\n"
+    "                                    value - 1, value);\n"
+    "    if (ret)\n"
+    "        return ret;\n"
+    "    ret = ksu_414_resize_ptr_array(&db->sym_val_to_name[SYM_TYPES],\n"
+    "                                    value - 1, value);\n"
+    "    if (ret)\n"
+    "        return ret;\n\n"
+    "    type_map = flex_array_get(db->type_attr_map_array, value - 1);\n"
+    "    if (!type_map)\n"
+    "        return -EINVAL;\n"
+    "    ebitmap_init(type_map);\n"
+    "    ret = ebitmap_set_bit(type_map, value - 1, 1);\n"
+    "    if (ret)\n"
+    "        return ret;\n"
+    "    ret = flex_array_put_ptr(db->type_val_to_struct_array, value - 1,\n"
+    "                             type, GFP_KERNEL);\n"
+    "    if (ret)\n"
+    "        return ret;\n"
+    "    return flex_array_put_ptr(db->sym_val_to_name[SYM_TYPES], value - 1,\n"
+    "                              name, GFP_KERNEL);\n"
+    "}\n\n"
+    "static bool ksu_414_add_filename_trans(struct policydb *db,\n"
+    "                                        const char *s, const char *t,\n"
+    "                                        const char *c, const char *d,\n"
+    "                                        const char *o)\n"
+    "{\n"
+    "    struct type_datum *src, *tgt, *def;\n"
+    "    struct class_datum *cls;\n"
+    "    struct filename_trans key = {};\n"
+    "    struct filename_trans *new_key;\n"
+    "    struct filename_trans_datum *trans;\n"
+    "    int ret;\n\n"
+    "    src = symtab_search(&db->p_types, s);\n"
+    "    tgt = symtab_search(&db->p_types, t);\n"
+    "    cls = symtab_search(&db->p_classes, c);\n"
+    "    def = symtab_search(&db->p_types, d);\n"
+    "    if (!src || !tgt || !cls || !def)\n"
+    "        return false;\n\n"
+    "    key.stype = src->value;\n"
+    "    key.ttype = tgt->value;\n"
+    "    key.tclass = cls->value;\n"
+    "    key.name = o;\n"
+    "    trans = hashtab_search(db->filename_trans, &key);\n"
+    "    if (trans) {\n"
+    "        trans->otype = def->value;\n"
+    "        return true;\n"
+    "    }\n\n"
+    "    ret = ebitmap_set_bit(&db->filename_trans_ttypes, tgt->value, 1);\n"
+    "    if (ret)\n"
+    "        return false;\n"
+    "    new_key = kzalloc(sizeof(*new_key), GFP_KERNEL);\n"
+    "    trans = kzalloc(sizeof(*trans), GFP_KERNEL);\n"
+    "    if (!new_key || !trans)\n"
+    "        goto out_free;\n"
+    "    *new_key = key;\n"
+    "    new_key->name = kstrdup(o, GFP_KERNEL);\n"
+    "    if (!new_key->name)\n"
+    "        goto out_free;\n"
+    "    trans->otype = def->value;\n"
+    "    ret = hashtab_insert(db->filename_trans, new_key, trans);\n"
+    "    if (ret)\n"
+    "        goto out_free;\n"
+    "    return true;\n\n"
+    "out_free:\n"
+    "    if (new_key) {\n"
+    "        kfree(new_key->name);\n"
+    "        kfree(new_key);\n"
+    "    }\n"
+    "    kfree(trans);\n"
+    "    return false;\n"
     "}\n"
     "#endif\n",
     "4.14 SELinux policy state snapshot and loader",
 )
+
+# The 4.14 policydb uses flex_array buckets and legacy filename transition
+# entries. Keep the v3.4 policy operations and translate only their storage.
+replace_once(
+    sepolicy_path,
+    "struct ebitmap *sattr = &db->type_attr_map_array[type->value - 1];",
+    "struct ebitmap *sattr = KSU_TYPE_ATTR_MAP(db, type->value - 1);",
+    "4.14 SELinux type attribute map access",
+)
+sepolicy_text = Path(sepolicy_path).read_text()
+for old, new, expected, label in (
+    (
+        "for (n = db->te_avtab.htable[i]; n; prev = n, n = n->next)",
+        "for (n = KSU_AVTAB_BUCKET(&db->te_avtab, i); n; prev = n, n = n->next)",
+        1,
+        "avtab bucket traversal",
+    ),
+    (
+        "db->te_avtab.htable[i] = n->next;",
+        "KSU_AVTAB_SET_BUCKET(&db->te_avtab, i, n->next);",
+        1,
+        "avtab bucket unlink",
+    ),
+    (
+        "removed.htable[0] = n;",
+        "KSU_AVTAB_SET_BUCKET(&removed, 0, n);",
+        1,
+        "avtab node disposal",
+    ),
+):
+    count = sepolicy_text.count(old)
+    if count != expected:
+        raise SystemExit(f"[KSUN340-414] {label}: expected {expected}, got {count}")
+    sepolicy_text = sepolicy_text.replace(old, new)
+
+filename_start = sepolicy_text.rindex("static bool add_filename_trans(struct policydb *db,")
+filename_end = sepolicy_text.index("\nstatic bool add_genfscon(", filename_start)
+filename_func = sepolicy_text[filename_start:filename_end]
+filename_open = "                               const char *o)\n{\n"
+if filename_func.count(filename_open) != 1:
+    raise SystemExit("[KSUN340-414] filename transition function anchor changed")
+filename_func = filename_func.replace(
+    filename_open,
+    filename_open
+    + "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    return ksu_414_add_filename_trans(db, s, t, c, d, o);\n"
+    "#else\n",
+    1,
+)
+filename_func = filename_func.rstrip("\n")
+if not filename_func.endswith("\n}"):
+    raise SystemExit("[KSUN340-414] filename transition function closing anchor changed")
+filename_func = filename_func[:-2] + "\n#endif\n}"
+sepolicy_text = sepolicy_text[:filename_start] + filename_func + sepolicy_text[filename_end:]
+
+add_type_start = sepolicy_text.index(
+    "static bool add_type(struct policydb *db, const char *type_name, bool attr)\n{"
+)
+type_indexes_start = sepolicy_text.index(
+    "    struct ebitmap *new_type_attr_map_array =\n", add_type_start
+)
+type_indexes_end = sepolicy_text.index("\n    int i;\n", type_indexes_start)
+old_type_indexes = sepolicy_text[type_indexes_start:type_indexes_end]
+new_type_indexes = (
+    "#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)\n"
+    "    if (ksu_414_add_type_indexes(db, value, type, key)) {\n"
+    "        pr_err(\"add_type: grow 4.14 type indexes failed\\n\");\n"
+    "        return false;\n"
+    "    }\n"
+    "#else\n"
+    + old_type_indexes
+    + "\n#endif"
+)
+sepolicy_text = (
+    sepolicy_text[:type_indexes_start]
+    + new_type_indexes
+    + sepolicy_text[type_indexes_end:]
+)
+Path(sepolicy_path).write_text(sepolicy_text)
+print("[KSUN340-414] adapted: legacy SELinux avtab, filename transition, and type indexes")
 
 # In 4.14, selinux_hide's fake view must use the legacy selinux_ss layout.
 hide_path = "KernelSU-Next/kernel/feature/selinux_hide.c"
