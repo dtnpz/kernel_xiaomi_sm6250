@@ -31,6 +31,15 @@ replace_once(
     "patch_memory nofault kernel write",
 )
 
+# v3.4.0 includes linux/pgtable.h for newer kernels, but N45 4.14 has
+# the required page-table helpers through the architecture headers instead.
+sucompat_path = Path("KernelSU-Next/kernel/feature/sucompat.c")
+sucompat_text = sucompat_path.read_text()
+if "#include <linux/pgtable.h>\n" not in sucompat_text:
+    raise SystemExit("[KSUN340-414] sucompat pgtable include anchor missing")
+sucompat_path.write_text(sucompat_text.replace("#include <linux/pgtable.h>\n", "", 1))
+print("[KSUN340-414] adapted: drop post-4.14 linux/pgtable.h include")
+
 # Linux 4.14 task_work_add() takes a boolean notify argument.
 for task_work_path in (
     "KernelSU-Next/kernel/policy/allowlist.c",
@@ -43,6 +52,240 @@ for task_work_path in (
     p.write_text(text.replace("TWA_RESUME", "true"))
     print(f"[KSUN340-414] adapted: 4.14 task_work notify API ({task_work_path})")
 
+
+# Linux 4.14 stores security_hook_heads as list_head lists, while newer
+# KernelSU-Next expects hlist_head on its pre-static-call path.  Keep the
+# v3.4.0 hook contract but implement the runtime slot replacement against the
+# actual 4.14 list layout.  v3.4.0 currently uses this for selinux_setprocattr.
+lsm_path = Path("KernelSU-Next/kernel/hook/lsm_hook.c")
+lsm_text = lsm_path.read_text()
+if "struct hlist_head *head;" not in lsm_text or "hlist_for_each_entry" not in lsm_text:
+    raise SystemExit("[KSUN340-414] unexpected v3.4.0 LSM hook implementation")
+lsm_path.write_text(r'''#include <linux/compiler.h>
+#include <linux/errno.h>
+#include <linux/init.h>
+#include <linux/kallsyms.h>
+#include <linux/kernel.h>
+#include <linux/list.h>
+#include <linux/lsm_hooks.h>
+#include <linux/mutex.h>
+#include <linux/rcupdate.h>
+#include <linux/string.h>
+
+#include "infra/symbol_resolver.h"
+#include "hook/lsm_hook.h"
+#include "hook/patch_memory.h"
+#include "klog.h"
+
+struct ksu_lsm_hook_entry {
+    struct ksu_lsm_hook *hook;
+};
+
+static DEFINE_MUTEX(ksu_lsm_hook_lock);
+static struct ksu_lsm_hook_entry ksu_lsm_hook_entries[16];
+static int ksu_lsm_hook_count;
+
+static bool ksu_lsm_hook_is_tracked(struct ksu_lsm_hook *hook)
+{
+    int i;
+    for (i = 0; i < ksu_lsm_hook_count; i++)
+        if (ksu_lsm_hook_entries[i].hook == hook)
+            return true;
+    return false;
+}
+
+static int ksu_lsm_hook_track(struct ksu_lsm_hook *hook)
+{
+    if (ksu_lsm_hook_is_tracked(hook))
+        return 0;
+    if (ksu_lsm_hook_count >= ARRAY_SIZE(ksu_lsm_hook_entries))
+        return -ENOSPC;
+    ksu_lsm_hook_entries[ksu_lsm_hook_count++].hook = hook;
+    return 0;
+}
+
+static void ksu_lsm_hook_untrack(struct ksu_lsm_hook *hook)
+{
+    int i;
+    for (i = 0; i < ksu_lsm_hook_count; i++) {
+        if (ksu_lsm_hook_entries[i].hook != hook)
+            continue;
+        ksu_lsm_hook_entries[i] = ksu_lsm_hook_entries[--ksu_lsm_hook_count];
+        return;
+    }
+}
+
+static int ksu_lsm_hook_patch_slot(void **slot, void *value)
+{
+    void *patched = value;
+    int ret = ksu_patch_text(slot, &patched, sizeof(patched), KSU_PATCH_TEXT_FLUSH_DCACHE);
+    if (!ret)
+        smp_wmb();
+    return ret;
+}
+
+int ksu_lsm_hook(struct ksu_lsm_hook *hook)
+{
+    unsigned long heads_addr;
+    struct list_head *head, *head_begin, *head_end;
+    struct security_hook_list *entry;
+    struct security_hook_list *selected_entry = NULL;
+    void **selected_slot = NULL;
+    void *selected_origin = NULL;
+    void *target;
+    int ret = 0;
+    int i;
+
+    if (!hook || !hook->replacement || !hook->target_name)
+        return -EINVAL;
+
+    mutex_lock(&ksu_lsm_hook_lock);
+    if (hook->entry) {
+        ret = -EALREADY;
+        goto out;
+    }
+
+    target = hook->original;
+    if (!target)
+        target = ksu_resolve_symbol_for_functable_hook(hook->target_name);
+    if (!target) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    heads_addr = find_kernel_symbol_exact("security_hook_heads");
+    if (!heads_addr) {
+        ret = -ENOENT;
+        goto out;
+    }
+
+    head_begin = (struct list_head *)heads_addr;
+    head_end = (struct list_head *)(heads_addr + sizeof(struct security_hook_heads));
+    head = (struct list_head *)(heads_addr + hook->head_offset);
+    if (head < head_begin || head >= head_end) {
+        ret = -EINVAL;
+        goto out;
+    }
+
+    list_for_each_entry(entry, head, list) {
+        void **slot = (void **)((char *)entry + hook->hook_offset);
+        void *current_origin = READ_ONCE(*slot);
+
+        for (i = 0; i < ksu_lsm_hook_count; i++) {
+            if (ksu_lsm_hook_entries[i].hook->replacement == current_origin) {
+                current_origin = ksu_lsm_hook_entries[i].hook->original;
+                break;
+            }
+        }
+
+        if (current_origin == hook->replacement) {
+            ret = -EALREADY;
+            goto out;
+        }
+        if (current_origin == target) {
+            selected_entry = entry;
+            selected_slot = slot;
+            selected_origin = current_origin;
+            break;
+        }
+    }
+
+    if (!selected_entry) {
+        pr_err("lsm_hook: target %s not found in %s\n",
+               hook->target_name, hook->head_name ?: "unknown");
+        ret = -ENOENT;
+        goto out;
+    }
+
+    if (hook->offset) {
+        head += hook->offset;
+        if (head < head_begin || head >= head_end || list_empty(head)) {
+            ret = -EINVAL;
+            goto out;
+        }
+        selected_entry = list_first_entry(head, struct security_hook_list, list);
+        selected_slot = (void **)((char *)selected_entry + hook->hook_offset);
+        selected_origin = READ_ONCE(*selected_slot);
+    }
+
+    ret = ksu_lsm_hook_track(hook);
+    if (ret)
+        goto out;
+
+    ret = ksu_lsm_hook_patch_slot(selected_slot, hook->replacement);
+    if (ret) {
+        ksu_lsm_hook_untrack(hook);
+        ret = -EFAULT;
+        goto out;
+    }
+
+    hook->entry = selected_entry;
+    hook->original = selected_origin;
+    pr_info("lsm_hook: GXT414 patched %s slot %px from %px to %px\n",
+            hook->head_name ?: "unknown", selected_slot,
+            selected_origin, hook->replacement);
+out:
+    mutex_unlock(&ksu_lsm_hook_lock);
+    return ret;
+}
+
+void ksu_lsm_unhook(struct ksu_lsm_hook *hook)
+{
+    void **slot;
+
+    if (!hook)
+        return;
+
+    mutex_lock(&ksu_lsm_hook_lock);
+    if (!hook->entry) {
+        mutex_unlock(&ksu_lsm_hook_lock);
+        return;
+    }
+
+    slot = (void **)((char *)hook->entry + hook->hook_offset);
+    if (ksu_lsm_hook_patch_slot(slot, hook->original)) {
+        pr_err("lsm_hook: failed to restore %s\n", hook->head_name ?: "unknown");
+        mutex_unlock(&ksu_lsm_hook_lock);
+        return;
+    }
+
+    synchronize_rcu();
+    ksu_lsm_hook_untrack(hook);
+    hook->entry = NULL;
+    mutex_unlock(&ksu_lsm_hook_lock);
+}
+
+int ksu_register_lsm_hook(struct ksu_lsm_hook *hook)
+{
+    return ksu_lsm_hook(hook);
+}
+
+void ksu_unregister_lsm_hook(struct ksu_lsm_hook *hook)
+{
+    ksu_lsm_unhook(hook);
+}
+
+void __init ksu_lsm_hook_init(void)
+{
+    pr_info("lsm_hook: GXT Linux 4.14 list bridge ready\n");
+}
+
+void __exit ksu_lsm_hook_exit(void)
+{
+    struct ksu_lsm_hook *hooks[ARRAY_SIZE(ksu_lsm_hook_entries)];
+    int count, i;
+
+    mutex_lock(&ksu_lsm_hook_lock);
+    count = ksu_lsm_hook_count;
+    for (i = 0; i < count; i++)
+        hooks[i] = ksu_lsm_hook_entries[i].hook;
+    mutex_unlock(&ksu_lsm_hook_lock);
+
+    for (i = count - 1; i >= 0; i--)
+        ksu_lsm_unhook(hooks[i]);
+}
+''')
+print("[KSUN340-414] adapted: Linux 4.14 list_head LSM hook bridge")
 
 # v3.4.0 arm64 assumes the newer pt_regs syscall-table ABI.  4.14 arm64 has
 # the classic C-argument sys_call_table, so that dispatcher cannot be used
