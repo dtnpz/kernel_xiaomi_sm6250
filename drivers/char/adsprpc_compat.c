@@ -43,8 +43,10 @@
 		_IOWR('R', 14, struct compat_fastrpc_ioctl_mmap_64)
 #define COMPAT_FASTRPC_IOCTL_MUNMAP_64 \
 		_IOWR('R', 15, struct compat_fastrpc_ioctl_munmap_64)
-#define COMPAT_FASTRPC_IOCTL_GET_DSP_INFO \
+#define COMPAT_FASTRPC_IOCTL_GET_DSP_INFO_LEGACY \
 		_IOWR('R', 16, struct compat_fastrpc_ioctl_dsp_capabilities)
+#define COMPAT_FASTRPC_IOCTL_GET_DSP_INFO \
+		_IOWR('R', 17, struct compat_fastrpc_ioctl_capability)
 
 struct compat_remote_buf {
 	compat_uptr_t pv;	/* buffer pointer */
@@ -150,6 +152,12 @@ struct compat_fastrpc_ioctl_control {
 struct compat_fastrpc_ioctl_dsp_capabilities {
 	compat_uint_t domain;	/* DSP domain to query capabilities */
 	compat_uint_t dsp_attributes[FASTRPC_MAX_DSP_ATTRIBUTES];
+};
+
+struct compat_fastrpc_ioctl_capability {
+	compat_uint_t domain;
+	compat_uint_t attribute_ID;
+	compat_uint_t capability;
 };
 
 static int compat_get_fastrpc_ioctl_invoke(
@@ -430,7 +438,7 @@ static int compat_fastrpc_get_dsp_info(struct file *filp,
 		return err;
 
 	ret = filp->f_op->unlocked_ioctl(filp,
-			FASTRPC_IOCTL_GET_DSP_INFO,
+			FASTRPC_IOCTL_GET_DSP_INFO_LEGACY,
 			(unsigned long)info);
 	if (ret)
 		return ret;
@@ -639,9 +647,15 @@ long compat_fastrpc_device_ioctl(struct file *filp, unsigned int cmd,
 		err |= put_user(u, &perf32->numkeys);
 		return err;
 	}
-	case COMPAT_FASTRPC_IOCTL_GET_DSP_INFO:
+	case COMPAT_FASTRPC_IOCTL_GET_DSP_INFO_LEGACY:
 	{
 		return compat_fastrpc_get_dsp_info(filp, arg);
+	}
+	case COMPAT_FASTRPC_IOCTL_GET_DSP_INFO:
+	{
+		return filp->f_op->unlocked_ioctl(filp,
+				FASTRPC_IOCTL_GET_DSP_INFO,
+				(unsigned long)compat_ptr(arg));
 	}
 	default:
 		return -ENOIOCTLCMD;
