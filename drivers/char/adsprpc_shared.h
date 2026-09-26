@@ -32,8 +32,10 @@
 #define FASTRPC_IOCTL_INVOKE_CRC _IOWR('R', 11, struct fastrpc_ioctl_invoke_crc)
 #define FASTRPC_IOCTL_CONTROL   _IOWR('R', 12, struct fastrpc_ioctl_control)
 #define FASTRPC_IOCTL_MUNMAP_FD _IOWR('R', 13, struct fastrpc_ioctl_munmap_fd)
-#define FASTRPC_IOCTL_GET_DSP_INFO \
+#define FASTRPC_IOCTL_GET_DSP_INFO_LEGACY \
 			_IOWR('R', 16, struct fastrpc_ioctl_dsp_capabilities)
+#define FASTRPC_IOCTL_GET_DSP_INFO \
+			_IOWR('R', 17, struct fastrpc_ioctl_capability)
 
 #define FASTRPC_GLINK_GUID "fastrpcglink-apps-dsp"
 #define FASTRPC_SMD_GUID "fastrpcsmd-apps-dsp"
@@ -276,6 +278,16 @@ struct fastrpc_ioctl_control {
 struct fastrpc_ioctl_dsp_capabilities {
 	uint32_t domain;	//! DSP domain to query capabilities
 	uint32_t dsp_attributes[FASTRPC_MAX_DSP_ATTRIBUTES];
+};
+
+/*
+ * Android 15 / newer Qualcomm userspace queries one capability at a time.
+ * Keep the legacy all-attributes ABI above for older vendor userspace.
+ */
+struct fastrpc_ioctl_capability {
+	uint32_t domain;
+	uint32_t attribute_ID;
+	uint32_t capability;
 };
 
 struct smq_null_invoke {
