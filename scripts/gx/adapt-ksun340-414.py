@@ -1264,6 +1264,33 @@ replace_once(
     "SULog 4.14 min/max declarations",
 )
 
+# Linux 4.14 exposes boottime as get_monotonic_boottime64() and lacks the
+# nofault user-string helper. SULog runs from the native syscall capture
+# paths in this port, so preserve boottime semantics and use the 4.14
+# user-copy primitive already used by the other native-call-site adapters.
+sulog_event_path = Path("KernelSU-Next/kernel/sulog/event.c")
+sulog_event_text = sulog_event_path.read_text()
+if sulog_event_text.count("ktime_get_boottime_ts64") != 2:
+    raise SystemExit("[KSUN340-414] unexpected SULog boottime helper count")
+if sulog_event_text.count("strncpy_from_user_nofault") != 2:
+    raise SystemExit("[KSUN340-414] unexpected SULog nofault user-string helper count")
+if "#include <linux/timekeeping.h>\n" not in sulog_event_text:
+    if "#include <linux/string.h>\n" not in sulog_event_text:
+        raise SystemExit("[KSUN340-414] SULog timekeeping include anchor missing")
+    sulog_event_text = sulog_event_text.replace(
+        "#include <linux/string.h>\n",
+        "#include <linux/string.h>\n#include <linux/timekeeping.h>\n",
+        1,
+    )
+sulog_event_text = sulog_event_text.replace(
+    "ktime_get_boottime_ts64", "get_monotonic_boottime64"
+)
+sulog_event_text = sulog_event_text.replace(
+    "strncpy_from_user_nofault", "strncpy_from_user"
+)
+sulog_event_path.write_text(sulog_event_text)
+print("[KSUN340-414] adapted: SULog 4.14 boottime and user-copy APIs")
+
 
 # Linux 4.14 stores security_hook_heads as list_head lists, while newer
 # KernelSU-Next expects hlist_head on its pre-static-call path.  Keep the
