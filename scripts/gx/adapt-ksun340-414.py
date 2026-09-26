@@ -516,6 +516,28 @@ replace_once(
     "allowlist 4.14 switch fall-through annotation",
 )
 
+# Linux 4.14 exposes put_seccomp_filter() and its task seccomp state has no
+# filter_count member.
+app_profile_path = "KernelSU-Next/kernel/policy/app_profile.c"
+replace_once(
+    app_profile_path,
+    "void seccomp_filter_release(struct task_struct *tsk);\n",
+    "",
+    "app profile 4.14 seccomp release declaration",
+)
+replace_once(
+    app_profile_path,
+    "    atomic_set(&current->seccomp.filter_count, 0);\n",
+    "",
+    "app profile 4.14 seccomp filter counter field",
+)
+replace_once(
+    app_profile_path,
+    "    seccomp_filter_release(fake);\n",
+    "    put_seccomp_filter(fake);\n",
+    "app profile 4.14 seccomp filter release helper",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
