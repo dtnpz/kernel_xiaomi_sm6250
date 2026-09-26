@@ -366,6 +366,82 @@ replace_once(
     "seccomp cache native syscall bound",
 )
 
+# Linux 4.14 has the old syscall entrypoints and no path_mount() wrapper.
+mount_ns_path = "KernelSU-Next/kernel/infra/su_mount_ns.c"
+replace_once(
+    mount_ns_path,
+    "#include <linux/syscalls.h>\n",
+    "#include <linux/syscalls.h>\n#include <linux/uaccess.h>\n",
+    "mount namespace 4.14 address-limit declarations",
+)
+replace_once(
+    mount_ns_path,
+    "#include <uapi/linux/mount.h>\n",
+    "",
+    "mount namespace use 4.14 mount flags",
+)
+replace_once(
+    mount_ns_path,
+    "extern int path_mount(const char *dev_name, struct path *path,\n"
+    "                      const char *type_page, unsigned long flags,\n"
+    "                      void *data_page);\n\n",
+    "",
+    "mount namespace remove post-4.14 path_mount declaration",
+)
+replace_once(
+    mount_ns_path,
+    "#if defined(__aarch64__)\n"
+    "extern long __arm64_sys_setns(const struct pt_regs *regs);\n"
+    "#elif defined(__x86_64__)\n"
+    "extern long __x64_sys_setns(const struct pt_regs *regs);\n"
+    "#endif\n\n"
+    "static long ksu_sys_setns(int fd, int flags)\n"
+    "{\n"
+    "    struct pt_regs regs;\n"
+    "    memset(&regs, 0, sizeof(regs));\n\n"
+    "    PT_REGS_PARM1(&regs) = fd;\n"
+    "    PT_REGS_PARM2(&regs) = flags;\n\n"
+    "#if defined(__aarch64__)\n"
+    "    return __arm64_sys_setns(&regs);\n"
+    "#elif defined(__x86_64__)\n"
+    "    return __x64_sys_setns(&regs);\n"
+    "#else\n"
+    "#error \"Unsupported arch\"\n"
+    "#endif\n"
+    "}\n",
+    "static long ksu_sys_setns(int fd, int flags)\n"
+    "{\n"
+    "    return sys_setns(fd, flags);\n"
+    "}\n",
+    "mount namespace native 4.14 setns entrypoint",
+)
+replace_once(
+    mount_ns_path,
+    "    long ret = ksys_unshare(CLONE_NEWNS);\n",
+    "    long ret = sys_unshare(CLONE_NEWNS);\n",
+    "mount namespace native 4.14 unshare entrypoint",
+)
+replace_once(
+    mount_ns_path,
+    "    // make root mount private\n"
+    "    struct path root_path;\n"
+    "    get_fs_root(current->fs, &root_path);\n"
+    "    int pm_ret = path_mount(NULL, &root_path, NULL, MS_PRIVATE | MS_REC, NULL);\n"
+    "    path_put(&root_path);\n\n"
+    "    if (pm_ret < 0) {\n"
+    "        pr_err(\"failed to make root private, err: %d\\n\", pm_ret);\n"
+    "    }\n",
+    "    // Use 4.14's mount syscall with a kernel path to the current root.\n"
+    "    mm_segment_t old_fs = get_fs();\n"
+    "    set_fs(KERNEL_DS);\n"
+    "    long pm_ret = sys_mount(NULL, \"/\", NULL, MS_PRIVATE | MS_REC, NULL);\n"
+    "    set_fs(old_fs);\n"
+    "    if (pm_ret < 0) {\n"
+    "        pr_err(\"failed to make root private, err: %ld\\n\", pm_ret);\n"
+    "    }\n",
+    "mount namespace 4.14 private root mount",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
