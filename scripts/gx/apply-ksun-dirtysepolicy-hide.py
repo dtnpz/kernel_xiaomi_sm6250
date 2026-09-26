@@ -31,9 +31,8 @@ s = read(path)
 if "ksu_selinux_hide_transaction_pre" not in s:
     s = replace_once(
         s,
-        "void ksu_selinux_hide_exit();\n\n#endif",
-        """void ksu_selinux_hide_exit();
-
+        "\n#endif",
+        """
 void ksu_selinux_hide_track_policy_cmd(u32 cmd, u32 subcmd,
                                         const char **args);
 int ksu_selinux_hide_transaction_pre(ino_t ino, const char *data,
@@ -361,6 +360,15 @@ int ksu_selinux_hide_setprocattr_pre(const char *name, const void *value,
         "\tn45_ksu_hide_seed_policy();\n",
         "seed private policy view",
     )
+
+if "#include <linux/uaccess.h>" not in s:
+    s = replace_once(
+        s,
+        "#include <linux/slab.h>\n",
+        "#include <linux/slab.h>\n#include <linux/uaccess.h>\n",
+        "SELinux context probe copy_from_user include",
+    )
+
 write(path, s)
 
 
@@ -477,10 +485,17 @@ write(path, s)
 
 checks = {
     "KernelSU-Next/kernel/feature/selinux_hide.c": [
+        "static bool ksu_selinux_hide_is_enabled __read_mostly = true;",
         "N45 DirtySepolicy parity",
         "new_status->sequence = 0;",
         "new_status->policyload = 0;",
         "filp->private_data = data;",
+        "copy_from_user(scon, buf,",
+        "return orig_selinux_transaction_write(file, buf, size, pos);",
+        '"u:r:su:"',
+        "ksu_selinux_hide: blocked root context check %s from uid=%d",
+        '"u:r:su_system:"',
+        '"u:r:ksu:"',
         "ksu_selinux_hide_transaction_pre",
         "ksu_selinux_hide_setprocattr_pre",
     ],
@@ -504,5 +519,10 @@ for filename, needles in checks.items():
                 f"[N45][KSUN-dirtyhide] verification failed: "
                 f"{filename}: {needle}"
             )
+    if filename == "KernelSU-Next/kernel/feature/selinux_hide.c" and \
+            "blocked transaction_write from uid=" in text:
+        raise SystemExit(
+            "[N45][KSUN-dirtyhide] blanket app-UID SELinux context rejection remains"
+        )
 
 print("[N45][KSUN-dirtyhide] installed DirtySepolicy parity on legacy manual hooks")

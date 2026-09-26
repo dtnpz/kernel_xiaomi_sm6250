@@ -126,8 +126,9 @@ jobs:
             "$internal" "$display" "$GX_ROOT" > "artifacts/${display}.release-info.txt"
           if [[ "$GITHUB_REF_NAME" == 'gxterkernl-joyeuse-4.14.357-rev187-ksun' ]]; then
             source gx-sources.lock
-            printf 'ksun_release_tag=%s\nksun_release_commit=%s\nksun_legacy_branch=%s\nksun_legacy_commit=%s\nksun_legacy_uapi=2\n' \
-              "$KSUN_RELEASE_TAG" "$KSUN_RELEASE_COMMIT" "$KSUN_LEGACY_BRANCH" "$KSUN_LEGACY_COMMIT" \
+            legacy_tag="$(git -C KernelSU-Next describe --tags --exact-match HEAD)"
+            printf 'ksun_release_tag=%s\nksun_release_commit=%s\nksun_legacy_tag=%s\nksun_legacy_branch=%s\nksun_legacy_commit=%s\nksun_legacy_uapi=4\n' \
+              "$KSUN_RELEASE_TAG" "$KSUN_RELEASE_COMMIT" "$legacy_tag" "$KSUN_LEGACY_BRANCH" "$KSUN_LEGACY_COMMIT" \
               >> "artifacts/${display}.release-info.txt"
           fi
 
@@ -153,10 +154,10 @@ jobs:
           source gx-sources.lock
           test "$KSUN_RELEASE_TAG" = 'v3.4.0' || fail "KSUN release target is $KSUN_RELEASE_TAG"
           test "$KSUN_RELEASE_COMMIT" = '1a879d6a866f80b1fa1c1009a2ffa747873cbb5e' || fail "KSUN v3.4.0 release commit mismatch"
-          test "$actual_ksun" = 'dd074bc6c4b33ca4cdf7da05838c71a26ebd6a66' || \
+          test "$actual_ksun" = '8af3d4fec33be32fa5d3f8dae4f380fac45bf2cd' || \
             fail "KSUN legacy pin mismatch: $actual_ksun"
-          grep -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+2([^0-9]|$)' KernelSU-Next/uapi/supercall.h || \
-            fail 'KernelSU-Next 4.14 legacy lane unexpectedly changed away from UAPI2'
+          grep -Eq 'KERNEL_SU_UAPI_VERSION[^0-9]+4([^0-9]|$)' KernelSU-Next/uapi/supercall.h || \
+            fail 'KernelSU-Next 4.14 v3.4.0 legacy lane is not UAPI4'
 
           echo '[KSUN] generated KSU config:'
           grep -E '^(CONFIG_KSU|# CONFIG_KSU)' out/.config || true
@@ -174,9 +175,19 @@ jobs:
           echo '[KSUN] ok: manual-hook/no-SUSFS generated config'
 
           require_line 'DirtySepolicy helper block' 'N45 DirtySepolicy parity' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'SELinux Hide stays available and active' 'static bool ksu_selinux_hide_is_enabled __read_mostly = true;' KernelSU-Next/kernel/feature/selinux_hide.c
           require_line 'stock status sequence' 'new_status->sequence = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
           require_line 'stock status policyload' 'new_status->policyload = 0;' KernelSU-Next/kernel/feature/selinux_hide.c
           require_line '4.14 status page ABI' 'filp->private_data = data;' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'ordinary SELinux context checks pass through' 'return orig_selinux_transaction_write(file, buf, size, pos);' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'SELinux context probe copied for scoped filtering' 'copy_from_user(scon, buf,' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'SELinux hide checks su context' 'u:r:su:' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'SELinux hide checks ksu context' 'u:r:ksu:' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'SELinux hide rejects explicit root-context probes' 'ksu_selinux_hide: blocked root context check %s from uid=%d' KernelSU-Next/kernel/feature/selinux_hide.c
+          require_line 'SELinux hide checks su_system context' 'u:r:su_system:' KernelSU-Next/kernel/feature/selinux_hide.c
+          if grep -Fq 'blocked transaction_write from uid=' KernelSU-Next/kernel/feature/selinux_hide.c; then
+            fail 'blanket SELinux context rejection still enabled for app UIDs'
+          fi
           if grep -Fq 'filp->private_data = page_address(data);' KernelSU-Next/kernel/feature/selinux_hide.c; then
             fail 'newer-kernel status-page ABI leaked into N45 4.14 shim'
           fi
@@ -249,4 +260,4 @@ jobs:
             "artifacts/$GX_VARIANT.build-info.txt" \
             --target "$GITHUB_SHA" \
             --title "$tag" \
-            --notes 'OpenELA 4.14.357 with the current official KernelSU-Next legacy/manual-hook driver for Linux 4.14 (legacy head dd074bc) and KernelSU-Next manager release target v3.4.0. The legacy driver intentionally remains UAPI2; v3.4.0 mainline UAPI4 is handled by the separate MultiKSU compatibility lane. Fingerprint boot-race and shared gxt identity behavior are preserved.'
+            --notes 'OpenELA 4.14.357 with KernelSU-Next v3.4.0 legacy/manual-hook kernel source (legacy head 8af3d4f, UAPI4) and Manager v3.4.0. SELinux Hide remains available and now passes normal Android app-context validation while filtering explicit su/ksu context probes. Fingerprint boot-race and shared gxt identity behavior are preserved.'

@@ -18,8 +18,8 @@ if [[ "${GX_SUSFS:-0}" == "1" ]]; then
   KSU_COMMIT="$KSUN_SUSFS_COMMIT"
   echo "[GXT] integrating KernelSU-Next SUSFS-v2 compatibility tree @ $KSU_COMMIT"
 else
-  # N45 is Linux 4.14. Use KernelSU-Next's official legacy/manual-hook branch,
-  # not the stable KPROBES-oriented release lane.
+  # N45 is Linux 4.14. Use KernelSU-Next's official v3.4.0 legacy/manual-hook
+  # head, which carries UAPI4 while retaining the pre-5.10 hook integration.
   KSU_REPO="$KSUN_REPO"
   KSU_COMMIT="$KSUN_LEGACY_COMMIT"
   echo "[GXT] integrating official KernelSU-Next ${KSUN_LEGACY_BRANCH} manual-hook tree @ $KSU_COMMIT"
@@ -88,6 +88,7 @@ if [[ "${GX_SUSFS:-0}" == "0" ]]; then
   grep -Fq 'config KSU_MANUAL_HOOK' "$KSUN_DIR/kernel/Kconfig"
   grep -Fq 'This should not be used on kernel below 5.10' "$KSUN_DIR/kernel/Kconfig"
   grep -Fq 'int ksu_handle_execveat(' "$KSUN_DIR/kernel/core/init.c"
+  grep -Fq 'int ksu_handle_setresuid(uid_t old_uid, uid_t new_uid)' "$KSUN_DIR/kernel/hook/setuid_hook.c"
   grep -Fq 'ksu_handle_vfs_read' "$KSUN_DIR/kernel/runtime/ksud_integration.c"
   grep -Fq 'ksu_handle_sys_reboot' "$KSUN_DIR/kernel/supercall/supercall.c"
   echo "[GXT] official KernelSU-Next legacy manual-hook integration ready"

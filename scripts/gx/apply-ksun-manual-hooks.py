@@ -130,7 +130,7 @@ path = "kernel/sys.c"
 s = read(path)
 require_absent(s, "ksu_handle_setresuid", path)
 extern = '''#ifdef CONFIG_KSU_MANUAL_HOOK
-extern int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+extern int ksu_handle_setresuid(uid_t old_uid, uid_t new_uid);
 #endif
 
 '''
@@ -143,7 +143,7 @@ s = replace_once(
 s = replace_once(
     s,
     "SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)\n{\n\tstruct user_namespace *ns = current_user_ns();\n",
-    "SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)\n{\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_setresuid(ruid, euid, suid);\n#endif\n\tstruct user_namespace *ns = current_user_ns();\n",
+    "SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)\n{\n#ifdef CONFIG_KSU_MANUAL_HOOK\n\tksu_handle_setresuid(current_uid().val, ruid);\n#endif\n\tstruct user_namespace *ns = current_user_ns();\n",
     "setresuid manual hook",
 )
 write(path, s)
