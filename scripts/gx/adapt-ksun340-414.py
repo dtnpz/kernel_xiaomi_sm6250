@@ -302,6 +302,58 @@ replace_once(
     "file wrapper 4.14 SELinux inode accessor",
 )
 
+# 4.14 uses unsigned int poll masks and gets EPOLL readiness bits from
+# eventpoll.h. Keep the v3.4.0 event queue API typed across both versions.
+event_queue_h = "KernelSU-Next/kernel/infra/event_queue.h"
+replace_once(
+    event_queue_h,
+    "#include <linux/types.h>\n",
+    "#include <linux/types.h>\n#include <linux/version.h>\n",
+    "event queue kernel version declaration",
+)
+replace_once(
+    event_queue_h,
+    "#define KSU_EVENT_RECORD_FLAG_INTERNAL (1U << 0)\n",
+    "#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 16, 0)\n"
+    "typedef __poll_t ksu_event_poll_t;\n"
+    "#else\n"
+    "typedef unsigned int ksu_event_poll_t;\n"
+    "#endif\n\n"
+    "#define KSU_EVENT_RECORD_FLAG_INTERNAL (1U << 0)\n",
+    "event queue 4.14 poll mask type",
+)
+replace_once(
+    event_queue_h,
+    "__poll_t ksu_event_queue_poll(struct ksu_event_queue *queue, struct file *file, poll_table *wait);\n",
+    "ksu_event_poll_t ksu_event_queue_poll(struct ksu_event_queue *queue, struct file *file, poll_table *wait);\n",
+    "event queue poll prototype type",
+)
+event_queue_c = "KernelSU-Next/kernel/infra/event_queue.c"
+replace_once(
+    event_queue_c,
+    "#include <linux/poll.h>\n",
+    "#include <linux/poll.h>\n#include <linux/eventpoll.h>\n",
+    "event queue eventpoll readiness declarations",
+)
+replace_once(
+    event_queue_c,
+    "__poll_t ksu_event_queue_poll(struct ksu_event_queue *queue, struct file *file, poll_table *wait)\n",
+    "ksu_event_poll_t ksu_event_queue_poll(struct ksu_event_queue *queue, struct file *file, poll_table *wait)\n",
+    "event queue poll implementation type",
+)
+replace_once(
+    event_queue_c,
+    "    __poll_t mask = 0;\n",
+    "    ksu_event_poll_t mask = 0;\n",
+    "event queue poll mask local type",
+)
+replace_once(
+    "KernelSU-Next/kernel/sulog/fd.c",
+    "static __poll_t ksu_sulog_poll(struct file *file, poll_table *wait)\n",
+    "static ksu_event_poll_t ksu_sulog_poll(struct file *file, poll_table *wait)\n",
+    "sulog fd poll return type",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
