@@ -354,6 +354,18 @@ replace_once(
     "sulog fd poll return type",
 )
 
+# 4.14 arm64 exposes the native syscall count as NR_syscalls.
+replace_once(
+    "KernelSU-Next/kernel/infra/seccomp_cache.c",
+    "#include <linux/seccomp.h>\n",
+    "#include <linux/seccomp.h>\n"
+    "#include <asm/unistd.h>\n\n"
+    "#ifndef SECCOMP_ARCH_NATIVE_NR\n"
+    "#define SECCOMP_ARCH_NATIVE_NR NR_syscalls\n"
+    "#endif\n",
+    "seccomp cache native syscall bound",
+)
+
 # ksys_close() was introduced after this vendor kernel. Linux 4.14 exposes
 # sys_close() and KernelSU already includes linux/syscalls.h through util.h.
 util_path = Path("KernelSU-Next/kernel/include/util.h")
