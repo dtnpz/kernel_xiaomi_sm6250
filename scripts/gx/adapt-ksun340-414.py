@@ -432,7 +432,7 @@ static bool gxt_414_is_su_path(const char __user *filename_user)
     if (!filename_user)
         return false;
     memset(path, 0, sizeof(path));
-    if (strncpy_from_user_nofault(path, filename_user, sizeof(path)) <= 0)
+    if (strncpy_from_user(path, filename_user, sizeof(path)) <= 0)
         return false;
     return !memcmp(path, su_path, sizeof(su_path));
 }
