@@ -438,7 +438,7 @@ static int compat_fastrpc_get_dsp_info(struct file *filp,
 		return err;
 
 	ret = filp->f_op->unlocked_ioctl(filp,
-			FASTRPC_IOCTL_GET_DSP_INFO,
+			FASTRPC_IOCTL_GET_DSP_INFO_LEGACY,
 			(unsigned long)info);
 	if (ret)
 		return ret;
