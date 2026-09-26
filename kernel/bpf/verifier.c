@@ -4460,6 +4460,17 @@ static int do_check(struct bpf_verifier_env *env)
 					return -EACCES;
 				}
 
+				if (env->prog->type == BPF_PROG_TYPE_CGROUP_SOCK_ADDR &&
+				    (env->prog->expected_attach_type ==
+							 BPF_CGROUP_UDP4_RECVMSG ||
+				     env->prog->expected_attach_type ==
+							 BPF_CGROUP_UDP6_RECVMSG) &&
+				    !tnum_equals_const(cur_regs(env)[BPF_REG_0].var_off,
+						      1)) {
+					verbose("UDP cgroup recvmsg program must return 1\n");
+					return -EINVAL;
+				}
+
 process_bpf_exit:
 				err = pop_stack(env, &env->prev_insn_idx, &env->insn_idx);
 				if (err < 0) {

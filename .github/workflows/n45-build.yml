@@ -55,11 +55,11 @@ jobs:
               raise SystemExit('Android BPF uname compatibility anchor not found')
           print('[uname] preserving netbpfload Android 15 compatibility spoof')
 
-          anchor = '''\t\tstrcpy(tmp.release, "5.4.0");
+          anchor = '''\t\tstrcpy(tmp.release, "4.19.236");
           \t\tpr_debug("fake uname: %s/%d release=%s\\n",
           \t\t\t current->comm, current->pid, tmp.release);
           \t}'''
-          replacement = f'''\t\tstrcpy(tmp.release, "5.4.0");
+          replacement = f'''\t\tstrcpy(tmp.release, "4.19.236");
           \t\tpr_debug("fake uname: %s/%d release=%s\\n",
           \t\t\t current->comm, current->pid, tmp.release);
           \t}} else if (!strcmp(current->comm, "uname") ||
@@ -113,7 +113,7 @@ jobs:
 
           grep -Fq 'rev187 clean-name compatibility' kernel/module.c
           grep -Fq '!strncmp(current->comm, "netbpfload", 10)' kernel/sys.c
-          grep -Fq 'strcpy(tmp.release, "5.4.0")' kernel/sys.c
+          grep -Fq 'strcpy(tmp.release, "4.19.236")' kernel/sys.c
           grep -Fq 'strcpy(tmp.release, "gxt-4.14.357")' kernel/sys.c
 
           source .gx-variant
