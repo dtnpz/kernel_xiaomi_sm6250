@@ -44,7 +44,7 @@
 #define COMPAT_FASTRPC_IOCTL_MUNMAP_64 \
 		_IOWR('R', 15, struct compat_fastrpc_ioctl_munmap_64)
 #define COMPAT_FASTRPC_IOCTL_GET_DSP_INFO \
-		_IOWR('R', 16, struct compat_fastrpc_ioctl_dsp_capabilities)
+		_IOWR('R', 17, struct compat_fastrpc_ioctl_dsp_capabilities)
 
 struct compat_remote_buf {
 	compat_uptr_t pv;	/* buffer pointer */
