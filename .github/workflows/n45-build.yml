@@ -203,7 +203,7 @@ jobs:
       - name: Upload flashable ZIP and build metadata
         uses: actions/upload-artifact@v4
         with:
-          name: n45-${{ github.ref_name }}
+          name: n45-${{ github.run_id }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 30
