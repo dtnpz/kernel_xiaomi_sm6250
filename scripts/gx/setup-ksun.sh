@@ -58,10 +58,14 @@ old = """config KALLSYMS_ALL
 new = """config KALLSYMS_ALL
 \tbool "Include all symbols in kallsyms"
 \tdepends on KALLSYMS"""
-if old not in s:
+if old in s:
+    s = s.replace(old, new, 1)
+    print("[GXT] relaxed KALLSYMS_ALL debug-only gate for KSUN v3.4.0")
+elif new not in s:
     raise SystemExit("[GXT] KALLSYMS_ALL 4.14 dependency anchor missing")
-p.write_text(s.replace(old, new, 1))
-print("[GXT] relaxed KALLSYMS_ALL debug-only gate for KSUN v3.4.0")
+else:
+    print("[GXT] KALLSYMS_ALL debug-only gate already relaxed")
+p.write_text(s)
 PY
 fi
 

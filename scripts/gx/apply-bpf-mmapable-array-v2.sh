@@ -16,13 +16,13 @@ def sub_once(path, pattern, repl, label, flags=re.M | re.S):
     print(f"[bpf-mmap] {label}: applied")
 
 
-def insert_after(path, pattern, text, present, label):
+def insert_after(path, pattern, text, present, label, flags=re.M):
     p = Path(path)
     s = p.read_text()
     if present in s:
         print(f"[bpf-mmap] {label}: already applied")
         return
-    m = re.search(pattern, s, flags=re.M)
+    m = re.search(pattern, s, flags=flags)
     if not m:
         raise SystemExit(f"{path}: {label}: anchor not found")
     p.write_text(s[:m.end()] + text + s[m.end():])
@@ -168,6 +168,7 @@ static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
 ''',
     "static int bpf_map_mmap(struct file *filp",
     "BPF map mmap implementation",
+    flags=re.M | re.S,
 )
 
 # Add mmap only to bpf_map_fops, not bpf_prog_fops.

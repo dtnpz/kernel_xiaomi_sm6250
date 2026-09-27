@@ -46,6 +46,148 @@ replace_once(
     "4.14 ARM64 instruction-cache flush helper",
 )
 
+# Linux 4.14 ARM64 routes syscalls through the legacy C entry point. The
+# kprobe receives the reboot arguments directly in x0-x3; newer wrappers pass
+# a pointer to a nested pt_regs instead.
+replace_once(
+    "KernelSU-Next/kernel/include/arch.h",
+    '#define REBOOT_SYMBOL "__arm64_sys_reboot"\n',
+    '#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n'
+    '#define REBOOT_SYMBOL "sys_reboot"\n'
+    "#else\n"
+    '#define REBOOT_SYMBOL "__arm64_sys_reboot"\n'
+    "#endif\n",
+    "4.14 ARM64 reboot syscall symbol",
+)
+replace_once(
+    "KernelSU-Next/kernel/supercall/supercall.c",
+    "    struct pt_regs *real_regs = PT_REAL_REGS(regs);\n",
+    "#if defined(__aarch64__) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n"
+    "    struct pt_regs *real_regs = regs;\n"
+    "#else\n"
+    "    struct pt_regs *real_regs = PT_REAL_REGS(regs);\n"
+    "#endif\n",
+    "4.14 reboot kprobe direct register frame",
+)
+replace_once(
+    "KernelSU-Next/kernel/supercall/supercall.c",
+    "    unsigned long arg4 = (unsigned long)PT_REGS_SYSCALL_PARM4(real_regs);\n",
+    "#if defined(__aarch64__) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 17, 0)\n"
+    "    unsigned long arg4 = (unsigned long)PT_REGS_CCALL_PARM4(real_regs);\n"
+    "#else\n"
+    "    unsigned long arg4 = (unsigned long)PT_REGS_SYSCALL_PARM4(real_regs);\n"
+    "#endif\n",
+    "4.14 reboot kprobe C ABI fourth argument",
+)
+
+# 4.14 ARM64 may map kernel text/rodata with section entries. Newer pmd_leaf
+# and pud_leaf helpers do not exist here, and pmd_bad/pud_bad classify those
+# section entries as non-table descriptors. Resolve the sections before the
+# bad-table checks, preserving the in-section virtual offset.
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    "    pte_t *pte;\n\n    *err = 0;\n",
+    "    pte_t *pte;\n"
+    '    const char *page_level = "pgd";\n\n'
+    "    *err = 0;\n",
+    "4.14 page-table failure-level tracking",
+)
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    "    p4d = p4d_offset(pgd, addr);\n",
+    '    page_level = "p4d";\n'
+    "    p4d = p4d_offset(pgd, addr);\n",
+    "4.14 page-table P4D diagnostic stage",
+)
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    """    pud = pud_offset(p4d, addr);
+    if (pud_none(*pud) || pud_bad(*pud))
+        goto fail;
+    pr_debug("pud of 0x%lx p=0x%lx v=0x%lx", addr, (uintptr_t)pud,
+             (uintptr_t)pud_val(*pud));
+#if defined(pud_leaf)
+    if (pud_leaf(*pud)) {
+        pr_debug("Address 0x%lx maps to a PUD-level huge page\\n", addr);
+        return __pud_to_phys(*pud) + ((addr & ~PUD_MASK));
+    }
+#endif
+""",
+    """    page_level = "pud";
+    pud = pud_offset(p4d, addr);
+    if (pud_none(*pud))
+        goto fail;
+    pr_debug("pud of 0x%lx p=0x%lx v=0x%lx", addr, (uintptr_t)pud,
+             (uintptr_t)pud_val(*pud));
+    if (pud_sect(*pud)) {
+        pr_debug("Address 0x%lx maps to a 4.14 PUD section\\n", addr);
+        return ((phys_addr_t)pud_pfn(*pud) << PAGE_SHIFT) + (addr & ~PUD_MASK);
+    }
+#if defined(pud_leaf)
+    if (pud_leaf(*pud)) {
+        pr_debug("Address 0x%lx maps to a PUD-level huge page\\n", addr);
+        return __pud_to_phys(*pud) + ((addr & ~PUD_MASK));
+    }
+#endif
+    if (pud_bad(*pud))
+        goto fail;
+""",
+    "4.14 ARM64 PUD section translation",
+)
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    """    pmd = pmd_offset(pud, addr);
+    pr_debug("pmd of 0x%lx p=0x%lx v=0x%lx", addr, (uintptr_t)pmd,
+             (uintptr_t)pmd_val(*pmd));
+#if defined(pmd_leaf)
+    if (pmd_leaf(*pmd)) {
+        pr_debug("Address 0x%lx maps to a PMD-level huge page\\n", addr);
+        return __pmd_to_phys(*pmd) + ((addr & ~PMD_MASK));
+    }
+#endif
+
+    if (pmd_none(*pmd) || pmd_bad(*pmd))
+        goto fail;
+""",
+    """    page_level = "pmd";
+    pmd = pmd_offset(pud, addr);
+    if (pmd_none(*pmd))
+        goto fail;
+    pr_debug("pmd of 0x%lx p=0x%lx v=0x%lx", addr, (uintptr_t)pmd,
+             (uintptr_t)pmd_val(*pmd));
+    if (pmd_sect(*pmd)) {
+        pr_debug("Address 0x%lx maps to a 4.14 PMD section\\n", addr);
+        return ((phys_addr_t)pmd_pfn(*pmd) << PAGE_SHIFT) + (addr & ~PMD_MASK);
+    }
+#if defined(pmd_leaf)
+    if (pmd_leaf(*pmd)) {
+        pr_debug("Address 0x%lx maps to a PMD-level huge page\\n", addr);
+        return __pmd_to_phys(*pmd) + ((addr & ~PMD_MASK));
+    }
+#endif
+
+    if (pmd_bad(*pmd))
+        goto fail;
+""",
+    "4.14 ARM64 PMD section translation",
+)
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    "    pte = pte_offset_kernel(pmd, addr);\n",
+    '    page_level = "pte";\n'
+    "    pte = pte_offset_kernel(pmd, addr);\n",
+    "4.14 page-table PTE diagnostic stage",
+)
+replace_once(
+    "KernelSU-Next/kernel/hook/arm64/patch_memory.c",
+    "fail:\n    *err = -ENOENT;\n    return 0;\n",
+    "fail:\n"
+    "    *err = -ENOENT;\n"
+    '    pr_err("phys_from_virt: 0x%lx failed at page-table level %s\\n", addr, page_level);\n'
+    "    return 0;\n",
+    "4.14 page-table failure-level diagnostic",
+)
+
 # v3.4.0 includes linux/pgtable.h for newer kernels, but N45 4.14 has
 # the required page-table helpers through the architecture headers instead.
 sucompat_path = Path("KernelSU-Next/kernel/feature/sucompat.c")
@@ -1954,9 +2096,10 @@ extern int ksu_handle_setresuid(uid_t old_uid, uid_t new_uid);
  * and suid.  This allows you to implement the 4.4 compatible seteuid().
  */
 SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)"""
-if setres_decl_anchor not in ksys:
+if setres_decl_anchor in ksys:
+    ksys = ksys.replace(setres_decl_anchor, setres_decl_new, 1)
+elif setres_decl_new not in ksys:
     raise SystemExit("[KSUN340-414] setresuid declaration anchor missing")
-ksys = ksys.replace(setres_decl_anchor, setres_decl_new, 1)
 setres_return = """	retval = security_task_fix_setuid(new, old, LSM_SETID_RES);
 	if (retval < 0)
 		goto error;
@@ -1987,9 +2130,11 @@ error:
 	abort_creds(new);
 	return retval;
 }"""
-if setres_return not in ksys:
+if setres_return in ksys:
+    ksys = ksys.replace(setres_return, setres_return_new, 1)
+elif setres_return_new not in ksys:
     raise SystemExit("[KSUN340-414] setresuid return anchor missing")
-sys_c.write_text(ksys.replace(setres_return, setres_return_new, 1))
+sys_c.write_text(ksys)
 print("[KSUN340-414] adapted: setresuid source callback")
 
 stat_c = Path("fs/stat.c")
@@ -2022,9 +2167,11 @@ SYSCALL_DEFINE2(newfstat, unsigned int, fd, struct stat __user *, statbuf)
 
 	return error;
 }"""
-if newfstat_anchor not in kst:
+if newfstat_anchor in kst:
+    kst = kst.replace(newfstat_anchor, newfstat_new, 1)
+elif newfstat_new not in kst:
     raise SystemExit("[KSUN340-414] newfstat anchor missing")
-stat_c.write_text(kst.replace(newfstat_anchor, newfstat_new, 1))
+stat_c.write_text(kst)
 print("[KSUN340-414] adapted: newfstat return source callback")
 
 # Verify all pre-existing vendor bridge points are still present.

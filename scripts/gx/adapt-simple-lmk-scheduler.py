@@ -4,6 +4,22 @@ from pathlib import Path
 p = Path("drivers/android/simple_lmk.c")
 s = p.read_text()
 
+already_adapted = [
+    "set_user_nice(current, 0);",
+    "set_user_nice(current, 1);",
+    "set_task_rt_prio(t, 1);",
+    "if (pressure == 100)",
+    "if (adj <= 200 ||",
+]
+if (
+    all(marker in s for marker in already_adapted)
+    and "set_task_rt_prio(current, MAX_RT_PRIO - 1);" not in s
+    and "set_task_rt_prio(current, MAX_RT_PRIO - 2);" not in s
+    and "if (adj < 0 ||" not in s
+):
+    print("[N45] Simple LMK adaptation already present")
+    raise SystemExit(0)
+
 # Android assigns background music/perceptible foreground-service work
 # oom_score_adj=200.  Simple LMK must exhaust ordinary background/cached
 # processes before considering anything the user is actively hearing/seeing.

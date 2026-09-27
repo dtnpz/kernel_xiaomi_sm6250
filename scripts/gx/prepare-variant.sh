@@ -63,6 +63,7 @@ fi
 # Only adapt missing 4.14 APIs and the incompatible pre-pt_regs syscall surface.
 if [[ "$GX_ROOT" == "ksun" && "$GX_SUSFS" == "0" ]]; then
   python3 scripts/gx/adapt-ksun340-414.py
+  python3 scripts/gx/test-ksun340-414-adapter.py
   grep -Fq 'static const __u32 KERNEL_SU_UAPI_VERSION = 4;' KernelSU-Next/uapi/supercall.h
   if grep -Fq 'blocked transaction_write from uid=' KernelSU-Next/kernel/feature/selinux_hide.c; then
     echo "legacy selinux_hide transaction blocker must not be present" >&2
